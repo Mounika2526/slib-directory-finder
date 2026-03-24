@@ -1,12 +1,15 @@
-from flask import request
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173"])
+
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///apis.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
 
 class ApiEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -16,18 +19,22 @@ class ApiEntry(db.Model):
     version = db.Column(db.String(50), nullable=False)
     developer = db.Column(db.String(100), nullable=False)
 
+
 @app.route("/")
 def home():
-    return "Backend is running!"
+    return jsonify({"message": "Backend is running!"})
+
 
 @app.route("/api/test")
 def test():
     return jsonify({"message": "API is working"})
 
-@app.route("/api/apis")
+
+@app.route("/api/apis", methods=["GET"])
 def get_apis():
     apis = ApiEntry.query.all()
     result = []
+
     for api in apis:
         result.append({
             "id": api.id,
@@ -37,7 +44,9 @@ def get_apis():
             "version": api.version,
             "developer": api.developer
         })
+
     return jsonify(result)
+
 
 @app.route("/api/apis", methods=["POST"])
 def add_api():
@@ -54,19 +63,8 @@ def add_api():
     db.session.add(new_api)
     db.session.commit()
 
-    return jsonify({"message": "API added successfully"})
+    return jsonify({"message": "API added successfully"}), 201
 
-@app.route("/api/apis/<int:id>", methods=["DELETE"])
-def delete_api(id):
-    api = ApiEntry.query.get(id)
-
-    if not api:
-        return jsonify({"error": "API not found"}), 404
-
-    db.session.delete(api)
-    db.session.commit()
-
-    return jsonify({"message": "API deleted successfully"})
 
 @app.route("/api/apis/<int:id>", methods=["PUT"])
 def update_api(id):
@@ -87,7 +85,18 @@ def update_api(id):
 
     return jsonify({"message": "API updated successfully"})
 
+@app.route("/api/apis/<int:id>", methods=["DELETE"])
+def delete_api(id):
+    api = ApiEntry.query.get(id)
+
+    if not api:
+        return jsonify({"error": "API not found"}), 404
+
+    db.session.delete(api)
+    db.session.commit()
+
+    return jsonify({"message": "API deleted successfully"})
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
