@@ -22,7 +22,7 @@ function App() {
     setLoading(true);
     setError("");
 
-    fetch("http://127.0.0.1:5000/api/apis")
+    fetch("https://sbom-finder-backend-6yk4.onrender.com/api/apis")
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to fetch APIs");
@@ -79,8 +79,8 @@ function App() {
 
     try {
       const url = editId
-        ? `http://127.0.0.1:5000/api/apis/${editId}`
-        : "http://127.0.0.1:5000/api/apis";
+        ? `https://sbom-finder-backend-6yk4.onrender.com/api/apis/${editId}`
+        : "https://sbom-finder-backend-6yk4.onrender.com/api/apis";
 
       const method = editId ? "PUT" : "POST";
 
@@ -116,9 +116,12 @@ function App() {
     setSuccessMessage("");
 
     try {
-      const res = await fetch(`http://127.0.0.1:5000/api/apis/${id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `https://sbom-finder-backend-6yk4.onrender.com/api/apis/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (!res.ok) {
         throw new Error("Failed to delete API");
@@ -148,9 +151,7 @@ function App() {
   const categories = useMemo(() => {
     const uniqueCategories = [
       ...new Set(
-        apis
-          .map((api) => api.category?.trim())
-          .filter(Boolean)
+        apis.map((api) => api.category?.trim()).filter(Boolean)
       ),
     ].sort();
 
