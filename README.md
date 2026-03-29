@@ -1,9 +1,9 @@
-# SBOM Finder (SLIB Directory Finder)
+# Software Library Directory (SLIB) : API / Microservices
 
 ## Description
 This project is part of my Software Engineering Capstone.
 
-SBOM Finder is a full-stack web application that allows users to manage, search, and organize API and software component information. It provides a clean interface to perform CRUD operations and quickly locate relevant entries.
+SLIB Finder is a full-stack web application that allows users to manage, search, and organize API and software component information. It provides a clean interface to perform CRUD operations and quickly locate relevant entries.
 
 ---
 
@@ -87,7 +87,7 @@ DELETE /api/apis/<id> → Delete API
 ---
 
 ## Future Enhancements
-- SBOM file upload and parsing
+- SLIB file upload and parsing
 - Advanced filtering (version, vendor, risk level)
 - Authentication and user roles
 - Deployment to cloud (Vercel + Render)
