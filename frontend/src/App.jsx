@@ -188,14 +188,13 @@ function App() {
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
                 <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-1 text-sm font-medium text-blue-100">
-                  SBOM Finder : API / Microservices
+                  SLIB Finder : API / Microservices
                 </span>
                 <h1 className="mt-4 text-4xl font-black tracking-tight md:text-5xl">
-                  API Registry Dashboard
+                  API & Microservices Directory Dashboard
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm text-slate-200 md:text-base">
-                  Manage, search, update, and organize API and microservice entries
-                  through a cleaner, polished interface.
+                  Discover, manage, and analyze APIs and microservices in a centralized directory
                 </p>
               </div>
 
