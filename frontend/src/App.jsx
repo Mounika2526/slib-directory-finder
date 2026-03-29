@@ -22,7 +22,7 @@ function App() {
     setLoading(true);
     setError("");
 
-    fetch("https://sbom-finder-backend-6yk4.onrender.com/api/apis")
+    fetch("https://slib-directory-finder.onrender.com/api/apis")
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to fetch APIs");
@@ -79,8 +79,8 @@ function App() {
 
     try {
       const url = editId
-        ? `https://sbom-finder-backend-6yk4.onrender.com/api/apis/${editId}`
-        : "https://sbom-finder-backend-6yk4.onrender.com/api/apis";
+        ? `https://slib-directory-finder.onrender.com/api/apis/${editId}`
+        : "https://slib-directory-finder.onrender.com/api/apis";
 
       const method = editId ? "PUT" : "POST";
 
@@ -117,7 +117,7 @@ function App() {
 
     try {
       const res = await fetch(
-        `https://sbom-finder-backend-6yk4.onrender.com/api/apis/${id}`,
+        `https://slib-directory-finder.onrender.com/api/apis/${id}`,
         {
           method: "DELETE",
         }
