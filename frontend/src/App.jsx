@@ -24,7 +24,7 @@ function App() {
     setLoading(true);
     setError("");
 
-    fetch("http://127.0.0.1:5001/api/apis")
+    fetch("https://slib-directory-finder.onrender.com/api/apis")
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to fetch APIs");
@@ -82,8 +82,8 @@ function App() {
 
     try {
       const url = editId
-        ? `http://127.0.0.1:5001/api/apis/${editId}`
-        : "http://127.0.0.1:5001/api/apis";
+        ? `https://slib-directory-finder.onrender.com/api/apis/${editId}`
+        : "https://slib-directory-finder.onrender.com/api/apis";
 
       const method = editId ? "PUT" : "POST";
 
@@ -136,7 +136,7 @@ function App() {
     setFetchingGithub(true);
   
     try {
-      const res = await fetch("http://127.0.0.1:5001/api/github-fetch", {
+      const res = await fetch("https://slib-directory-finder.onrender.com/api/github-fetch", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -176,7 +176,7 @@ function App() {
     setFetchingGithub(true);
   
     try {
-      const res = await fetch("http://127.0.0.1:5001/api/github-fetch", {
+      const res = await fetch("https://slib-directory-finder.onrender.com/api/github-fetch", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -213,7 +213,7 @@ function App() {
         return;
       }
   
-      const saveRes = await fetch("http://127.0.0.1:5001/api/apis", {
+      const saveRes = await fetch("https://slib-directory-finder.onrender.com/api/apis", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -244,7 +244,7 @@ function App() {
 
     try {
       const res = await fetch(
-        `http://127.0.0.1:5001/api/apis/${id}`,
+        `https://slib-directory-finder.onrender.com/api/apis/${id}`,
         {
           method: "DELETE",
         }
