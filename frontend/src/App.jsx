@@ -9,6 +9,8 @@ function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [editId, setEditId] = useState(null);
+  const [githubRepo, setGithubRepo] = useState("");
+  const [fetchingGithub, setFetchingGithub] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -22,7 +24,7 @@ function App() {
     setLoading(true);
     setError("");
 
-    fetch("https://slib-directory-finder.onrender.com/api/apis")
+    fetch("http://127.0.0.1:5001/api/apis")
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to fetch APIs");
@@ -59,7 +61,7 @@ function App() {
       [e.target.name]: e.target.value,
     });
   };
-
+  
   const resetForm = () => {
     setFormData({
       name: "",
@@ -68,6 +70,7 @@ function App() {
       version: "",
       developer: "",
     });
+    setGithubRepo("");
     setEditId(null);
   };
 
@@ -79,10 +82,24 @@ function App() {
 
     try {
       const url = editId
-        ? `https://slib-directory-finder.onrender.com/api/apis/${editId}`
-        : "https://slib-directory-finder.onrender.com/api/apis";
+        ? `http://127.0.0.1:5001/api/apis/${editId}`
+        : "http://127.0.0.1:5001/api/apis";
 
       const method = editId ? "PUT" : "POST";
+
+      if (!editId) {
+        const alreadyExists = apis.some(
+          (api) =>
+            api.name.toLowerCase() === formData.name.toLowerCase() &&
+            api.version.toLowerCase() === formData.version.toLowerCase()
+        );
+      
+        if (alreadyExists) {
+          setError("This API with the same version already exists.");
+          setSubmitting(false);
+          return;
+        }
+      }
 
       const res = await fetch(url, {
         method,
@@ -108,6 +125,116 @@ function App() {
     }
   };
 
+  const handleGithubFetch = async () => {
+    if (!githubRepo.trim()) {
+      setError("Please enter a GitHub repository in owner/repo format.");
+      return;
+    }
+  
+    setError("");
+    setSuccessMessage("");
+    setFetchingGithub(true);
+  
+    try {
+      const res = await fetch("http://127.0.0.1:5001/api/github-fetch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ repo: githubRepo }),
+      });
+  
+      const data = await res.json();
+  
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to fetch GitHub repository data");
+      }
+  
+      setFormData({
+        name: data.name || "",
+        category: data.category || "",
+        description: data.description || "",
+        version: data.version || "",
+        developer: data.developer || "",
+      });
+  
+      setSuccessMessage("GitHub repository data fetched successfully.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFetchingGithub(false);
+    }
+  };
+  const handleGithubFetchAndSave = async () => {
+    if (!githubRepo.trim()) {
+      setError("Please enter a GitHub repository in owner/repo format.");
+      return;
+    }
+  
+    setError("");
+    setSuccessMessage("");
+    setFetchingGithub(true);
+  
+    try {
+      const res = await fetch("http://127.0.0.1:5001/api/github-fetch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ repo: githubRepo }),
+      });
+  
+      const data = await res.json();
+  
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to fetch GitHub repository data");
+      }
+  
+      const fetchedFormData = {
+        name: data.name || "",
+        category: data.category || "",
+        description: data.description || "",
+        version: data.version || "",
+        developer: data.developer || "",
+      };
+  
+      setFormData(fetchedFormData);
+
+      // Check if API already exists (by name + version)
+      const alreadyExists = apis.some(
+        (api) =>
+          api.name.toLowerCase() === fetchedFormData.name.toLowerCase() &&
+          api.version.toLowerCase() === fetchedFormData.version.toLowerCase()
+      );
+
+      if (alreadyExists) {
+        setError("This API with the same version already exists.");
+        setFetchingGithub(false);
+        return;
+      }
+  
+      const saveRes = await fetch("http://127.0.0.1:5001/api/apis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(fetchedFormData),
+      });
+  
+      if (!saveRes.ok) {
+        throw new Error("Fetched successfully, but failed to save API");
+      }
+  
+      setSuccessMessage("GitHub repository data fetched and saved successfully.");
+      setGithubRepo("");
+      resetForm();
+      fetchApis();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFetchingGithub(false);
+    }
+  };
   const handleDelete = async (id) => {
     const confirmed = window.confirm("Are you sure you want to delete this API?");
     if (!confirmed) return;
@@ -117,7 +244,7 @@ function App() {
 
     try {
       const res = await fetch(
-        `https://slib-directory-finder.onrender.com/api/apis/${id}`,
+        `http://127.0.0.1:5001/api/apis/${id}`,
         {
           method: "DELETE",
         }
@@ -179,6 +306,12 @@ function App() {
   const uniqueDevelopers = new Set(
     apis.map((api) => api.developer?.trim()).filter(Boolean)
   ).size;
+  
+  const getRiskBadgeClass = (riskLevel) => {
+    if (riskLevel === "High") return "bg-red-100 text-red-700";
+    if (riskLevel === "Medium") return "bg-yellow-100 text-yellow-700";
+    return "bg-emerald-100 text-emerald-700";
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-8 md:px-6 lg:px-8">
@@ -256,6 +389,41 @@ function App() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  GitHub Repository                
+                </label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    placeholder="Ex: facebook/react"
+                    value={githubRepo}
+                    onChange={(e) => setGithubRepo(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleGithubFetch}
+                    disabled={fetchingGithub}
+                    className="rounded-2xl bg-indigo-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-70"
+                  >
+                    {fetchingGithub ? "..." : "Auto Fill"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleGithubFetchAndSave}
+                    disabled={fetchingGithub}
+                    className="rounded-2xl bg-emerald-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:opacity-70"
+                  >
+                    {fetchingGithub ? "..." : "Fill & Save"}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Enter a repository in owner/repo format to auto-fill the form.
+                </p>
+              </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-700">
                     API Name
@@ -489,8 +657,15 @@ function App() {
                           <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
                             {api.category}
                           </span>
+
                           <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                             {api.version}
+                          </span>
+
+                          <span
+                            className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${getRiskBadgeClass(api.risk_level)}`}
+                          >
+                            {api.risk_level || "Medium"} Risk
                           </span>
                         </div>
                       </div>
