@@ -69,6 +69,22 @@ def detect_category(repo_data):
     language = (repo_data.get("language") or "").lower()
     name = (repo_data.get("name") or "").lower()
 
+    framework_map = {
+        "flask": "Backend Framework",
+        "django": "Backend Framework",
+        "fastapi": "Backend Framework",
+        "spring": "Backend Framework",
+        "express": "Backend Framework",
+        "rails": "Backend Framework",
+        "laravel": "Backend Framework",
+        "react": "Frontend",
+        "vue": "Frontend",
+        "angular": "Frontend",
+    }
+
+    if name in framework_map:
+        return framework_map[name]
+
     topic_map = {
         "api": "API",
         "rest-api": "API",
