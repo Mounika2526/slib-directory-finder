@@ -35,6 +35,14 @@ class ApiEntry(db.Model):
     developer = db.Column(db.String(100), nullable=False)
     risk_level = db.Column(db.String(20), nullable=False, default="Medium")
 
+    programming_language = db.Column(db.String(100), nullable=True)
+    framework = db.Column(db.String(100), nullable=True)
+    cost = db.Column(db.String(50), nullable=True)
+    latency = db.Column(db.String(50), nullable=True)
+    scalability = db.Column(db.String(100), nullable=True)
+    design_pattern = db.Column(db.String(100), nullable=True)
+    sample_code = db.Column(db.Text, nullable=True)
+
 
 def calculate_risk(version):
     if not version or version.strip() == "":
@@ -78,7 +86,14 @@ def get_apis():
             "description": api.description,
             "version": api.version,
             "developer": api.developer,
-            "risk_level": api.risk_level
+            "risk_level": api.risk_level,
+            "programming_language": api.programming_language,
+            "framework": api.framework,
+            "cost": api.cost,
+            "latency": api.latency,
+            "scalability": api.scalability,
+            "design_pattern": api.design_pattern,
+            "sample_code": api.sample_code
         })
 
     return jsonify(result)
@@ -94,8 +109,16 @@ def add_api():
     version = data.get("version", "").strip()
     developer = data.get("developer", "").strip()
 
+    programming_language = data.get("programming_language", "").strip()
+    framework = data.get("framework", "").strip()
+    cost = data.get("cost", "").strip()
+    latency = data.get("latency", "").strip()
+    scalability = data.get("scalability", "").strip()
+    design_pattern = data.get("design_pattern", "").strip()
+    sample_code = data.get("sample_code", "").strip()
+
     if not all([name, category, description, version, developer]):
-        return jsonify({"error": "All fields are required"}), 400
+        return jsonify({"error": "Name, category, description, version, and developer are required"}), 400
 
     existing_api = ApiEntry.query.filter(
         db.func.lower(ApiEntry.name) == normalize_text(name),
@@ -111,7 +134,14 @@ def add_api():
         description=description,
         version=version,
         developer=developer,
-        risk_level=calculate_risk(version)
+        risk_level=calculate_risk(version),
+        programming_language=programming_language or None,
+        framework=framework or None,
+        cost=cost or None,
+        latency=latency or None,
+        scalability=scalability or None,
+        design_pattern=design_pattern or None,
+        sample_code=sample_code or None
     )
 
     db.session.add(new_api)
@@ -135,8 +165,16 @@ def update_api(id):
     version = data.get("version", "").strip()
     developer = data.get("developer", "").strip()
 
+    programming_language = data.get("programming_language", "").strip()
+    framework = data.get("framework", "").strip()
+    cost = data.get("cost", "").strip()
+    latency = data.get("latency", "").strip()
+    scalability = data.get("scalability", "").strip()
+    design_pattern = data.get("design_pattern", "").strip()
+    sample_code = data.get("sample_code", "").strip()
+
     if not all([name, category, description, version, developer]):
-        return jsonify({"error": "All fields are required"}), 400
+        return jsonify({"error": "Name, category, description, version, and developer are required"}), 400
 
     duplicate_api = ApiEntry.query.filter(
         db.func.lower(ApiEntry.name) == normalize_text(name),
@@ -153,6 +191,14 @@ def update_api(id):
     api.version = version
     api.developer = developer
     api.risk_level = calculate_risk(version)
+
+    api.programming_language = programming_language or None
+    api.framework = framework or None
+    api.cost = cost or None
+    api.latency = latency or None
+    api.scalability = scalability or None
+    api.design_pattern = design_pattern or None
+    api.sample_code = sample_code or None
 
     db.session.commit()
 
@@ -203,11 +249,18 @@ def github_fetch():
 
         result = {
             "name": repo_data.get("name", ""),
-            "category": repo_data.get("language", "Software Component") or "Software Component",
+            "category": "Microservice" if repo_data.get("language") else "Software Component",
             "description": repo_data.get("description", "") or "No description available",
             "version": version,
             "developer": repo_data.get("owner", {}).get("login", "") or "Unknown",
-            "risk_level": calculate_risk(version)
+            "risk_level": calculate_risk(version),
+            "programming_language": repo_data.get("language", "") or "",
+            "framework": "",
+            "cost": "Unknown",
+            "latency": "Unknown",
+            "scalability": "Unknown",
+            "design_pattern": "",
+            "sample_code": ""
         }
 
         return jsonify(result), 200

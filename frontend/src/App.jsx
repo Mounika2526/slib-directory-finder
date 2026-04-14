@@ -18,6 +18,13 @@ function App() {
     description: "",
     version: "",
     developer: "",
+    programming_language: "",
+    framework: "",
+    cost: "",
+    latency: "",
+    scalability: "",
+    design_pattern: "",
+    sample_code: "",
   });
 
   const fetchApis = () => {
@@ -61,7 +68,7 @@ function App() {
       [e.target.name]: e.target.value,
     });
   };
-  
+
   const resetForm = () => {
     setFormData({
       name: "",
@@ -69,6 +76,13 @@ function App() {
       description: "",
       version: "",
       developer: "",
+      programming_language: "",
+      framework: "",
+      cost: "",
+      latency: "",
+      scalability: "",
+      design_pattern: "",
+      sample_code: "",
     });
     setGithubRepo("");
     setEditId(null);
@@ -90,12 +104,12 @@ function App() {
       if (!editId) {
         const alreadyExists = apis.some(
           (api) =>
-            api.name.toLowerCase() === formData.name.toLowerCase() &&
-            api.version.toLowerCase() === formData.version.toLowerCase()
+            api.name?.toLowerCase() === formData.name.toLowerCase() &&
+            api.developer?.toLowerCase() === formData.developer.toLowerCase()
         );
-      
+
         if (alreadyExists) {
-          setError("This API with the same version already exists.");
+          setError("This API entry already exists.");
           setSubmitting(false);
           return;
         }
@@ -109,8 +123,10 @@ function App() {
         body: JSON.stringify(formData),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error(editId ? "Failed to update API" : "Failed to add API");
+        throw new Error(data.error || (editId ? "Failed to update API" : "Failed to add API"));
       }
 
       setSuccessMessage(
@@ -130,11 +146,11 @@ function App() {
       setError("Please enter a GitHub repository in owner/repo format.");
       return;
     }
-  
+
     setError("");
     setSuccessMessage("");
     setFetchingGithub(true);
-  
+
     try {
       const res = await fetch("https://slib-directory-finder.onrender.com/api/github-fetch", {
         method: "POST",
@@ -143,21 +159,28 @@ function App() {
         },
         body: JSON.stringify({ repo: githubRepo }),
       });
-  
+
       const data = await res.json();
-  
+
       if (!res.ok) {
         throw new Error(data.error || "Failed to fetch GitHub repository data");
       }
-  
+
       setFormData({
         name: data.name || "",
         category: data.category || "",
         description: data.description || "",
         version: data.version || "",
         developer: data.developer || "",
+        programming_language: data.programming_language || "",
+        framework: data.framework || "",
+        cost: data.cost || "",
+        latency: data.latency || "",
+        scalability: data.scalability || "",
+        design_pattern: data.design_pattern || "",
+        sample_code: data.sample_code || "",
       });
-  
+
       setSuccessMessage("GitHub repository data fetched successfully.");
     } catch (err) {
       setError(err.message);
@@ -165,16 +188,17 @@ function App() {
       setFetchingGithub(false);
     }
   };
+
   const handleGithubFetchAndSave = async () => {
     if (!githubRepo.trim()) {
       setError("Please enter a GitHub repository in owner/repo format.");
       return;
     }
-  
+
     setError("");
     setSuccessMessage("");
     setFetchingGithub(true);
-  
+
     try {
       const res = await fetch("https://slib-directory-finder.onrender.com/api/github-fetch", {
         method: "POST",
@@ -183,36 +207,42 @@ function App() {
         },
         body: JSON.stringify({ repo: githubRepo }),
       });
-  
+
       const data = await res.json();
-  
+
       if (!res.ok) {
         throw new Error(data.error || "Failed to fetch GitHub repository data");
       }
-  
+
       const fetchedFormData = {
         name: data.name || "",
         category: data.category || "",
         description: data.description || "",
         version: data.version || "",
         developer: data.developer || "",
+        programming_language: data.programming_language || "",
+        framework: data.framework || "",
+        cost: data.cost || "",
+        latency: data.latency || "",
+        scalability: data.scalability || "",
+        design_pattern: data.design_pattern || "",
+        sample_code: data.sample_code || "",
       };
-  
+
       setFormData(fetchedFormData);
 
-      // Check if API already exists (by name + version)
       const alreadyExists = apis.some(
         (api) =>
-          api.name.toLowerCase() === fetchedFormData.name.toLowerCase() &&
-          api.version.toLowerCase() === fetchedFormData.version.toLowerCase()
+          api.name?.toLowerCase() === fetchedFormData.name.toLowerCase() &&
+          api.developer?.toLowerCase() === fetchedFormData.developer.toLowerCase()
       );
 
       if (alreadyExists) {
-        setError("This API with the same version already exists.");
+        setError("This API entry already exists.");
         setFetchingGithub(false);
         return;
       }
-  
+
       const saveRes = await fetch("https://slib-directory-finder.onrender.com/api/apis", {
         method: "POST",
         headers: {
@@ -220,11 +250,13 @@ function App() {
         },
         body: JSON.stringify(fetchedFormData),
       });
-  
+
+      const saveData = await saveRes.json();
+
       if (!saveRes.ok) {
-        throw new Error("Fetched successfully, but failed to save API");
+        throw new Error(saveData.error || "Fetched successfully, but failed to save API");
       }
-  
+
       setSuccessMessage("GitHub repository data fetched and saved successfully.");
       setGithubRepo("");
       resetForm();
@@ -235,6 +267,7 @@ function App() {
       setFetchingGithub(false);
     }
   };
+
   const handleDelete = async (id) => {
     const confirmed = window.confirm("Are you sure you want to delete this API?");
     if (!confirmed) return;
@@ -268,6 +301,13 @@ function App() {
       description: api.description || "",
       version: api.version || "",
       developer: api.developer || "",
+      programming_language: api.programming_language || "",
+      framework: api.framework || "",
+      cost: api.cost || "",
+      latency: api.latency || "",
+      scalability: api.scalability || "",
+      design_pattern: api.design_pattern || "",
+      sample_code: api.sample_code || "",
     });
     setEditId(api.id);
     setSuccessMessage("");
@@ -277,9 +317,7 @@ function App() {
 
   const categories = useMemo(() => {
     const uniqueCategories = [
-      ...new Set(
-        apis.map((api) => api.category?.trim()).filter(Boolean)
-      ),
+      ...new Set(apis.map((api) => api.category?.trim()).filter(Boolean)),
     ].sort();
 
     return ["All", ...uniqueCategories];
@@ -287,12 +325,20 @@ function App() {
 
   const filteredApis = useMemo(() => {
     return apis.filter((api) => {
+      const term = searchTerm.toLowerCase();
+
       const matchesSearch =
-        api.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        api.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        api.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        api.version?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        api.developer?.toLowerCase().includes(searchTerm.toLowerCase());
+        api.name?.toLowerCase().includes(term) ||
+        api.category?.toLowerCase().includes(term) ||
+        api.description?.toLowerCase().includes(term) ||
+        api.version?.toLowerCase().includes(term) ||
+        api.developer?.toLowerCase().includes(term) ||
+        api.programming_language?.toLowerCase().includes(term) ||
+        api.framework?.toLowerCase().includes(term) ||
+        api.cost?.toLowerCase().includes(term) ||
+        api.latency?.toLowerCase().includes(term) ||
+        api.scalability?.toLowerCase().includes(term) ||
+        api.design_pattern?.toLowerCase().includes(term);
 
       const matchesCategory =
         selectedCategory === "All" || api.category === selectedCategory;
@@ -306,7 +352,7 @@ function App() {
   const uniqueDevelopers = new Set(
     apis.map((api) => api.developer?.trim()).filter(Boolean)
   ).size;
-  
+
   const getRiskBadgeClass = (riskLevel) => {
     if (riskLevel === "High") return "bg-red-100 text-red-700";
     if (riskLevel === "Medium") return "bg-yellow-100 text-yellow-700";
@@ -333,21 +379,15 @@ function App() {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[420px]">
                 <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-300">
-                    Total APIs
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-slate-300">Total APIs</p>
                   <p className="mt-2 text-2xl font-bold">{totalApis}</p>
                 </div>
                 <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-300">
-                    Categories
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-slate-300">Categories</p>
                   <p className="mt-2 text-2xl font-bold">{totalCategories}</p>
                 </div>
                 <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-300">
-                    Developers
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-slate-300">Developers</p>
                   <p className="mt-2 text-2xl font-bold">{uniqueDevelopers}</p>
                 </div>
               </div>
@@ -389,41 +429,42 @@ function App() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  GitHub Repository                
-                </label>
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    placeholder="Ex: facebook/react"
-                    value={githubRepo}
-                    onChange={(e) => setGithubRepo(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                  />
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    GitHub Repository
+                  </label>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      placeholder="Ex: facebook/react"
+                      value={githubRepo}
+                      onChange={(e) => setGithubRepo(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
 
-                  <button
-                    type="button"
-                    onClick={handleGithubFetch}
-                    disabled={fetchingGithub}
-                    className="rounded-2xl bg-indigo-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-70"
-                  >
-                    {fetchingGithub ? "..." : "Auto Fill"}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={handleGithubFetch}
+                      disabled={fetchingGithub}
+                      className="rounded-2xl bg-indigo-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-70"
+                    >
+                      {fetchingGithub ? "..." : "Auto Fill"}
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={handleGithubFetchAndSave}
-                    disabled={fetchingGithub}
-                    className="rounded-2xl bg-emerald-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:opacity-70"
-                  >
-                    {fetchingGithub ? "..." : "Fill & Save"}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={handleGithubFetchAndSave}
+                      disabled={fetchingGithub}
+                      className="rounded-2xl bg-emerald-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:opacity-70"
+                    >
+                      {fetchingGithub ? "..." : "Fill & Save"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Enter a repository in owner/repo format to auto-fill the form.
+                  </p>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  Enter a repository in owner/repo format to auto-fill the form.
-                </p>
-              </div>
+
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-700">
                     API Name
@@ -501,6 +542,110 @@ function App() {
                   </div>
                 </div>
 
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Programming Language
+                    </label>
+                    <input
+                      type="text"
+                      name="programming_language"
+                      placeholder="Ex: JavaScript"
+                      value={formData.programming_language}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Framework
+                    </label>
+                    <input
+                      type="text"
+                      name="framework"
+                      placeholder="Ex: Express"
+                      value={formData.framework}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Cost
+                    </label>
+                    <input
+                      type="text"
+                      name="cost"
+                      placeholder="Ex: Free / Paid / Freemium"
+                      value={formData.cost}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Latency
+                    </label>
+                    <input
+                      type="text"
+                      name="latency"
+                      placeholder="Ex: Low / Medium / High"
+                      value={formData.latency}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Scalability
+                    </label>
+                    <input
+                      type="text"
+                      name="scalability"
+                      placeholder="Ex: High"
+                      value={formData.scalability}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Design Pattern
+                    </label>
+                    <input
+                      type="text"
+                      name="design_pattern"
+                      placeholder="Ex: REST"
+                      value={formData.design_pattern}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Sample Code
+                  </label>
+                  <textarea
+                    name="sample_code"
+                    placeholder="Paste sample usage code here..."
+                    value={formData.sample_code}
+                    onChange={handleChange}
+                    rows={5}
+                    className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  />
+                </div>
+
                 <div className="flex flex-wrap gap-3 pt-2">
                   <button
                     type="submit"
@@ -560,7 +705,7 @@ function App() {
               <div className="grid gap-4 md:grid-cols-[1.6fr_1fr_auto]">
                 <input
                   type="text"
-                  placeholder="Search by name, category, description, version, or developer"
+                  placeholder="Search by name, category, language, framework, pattern, developer"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
@@ -572,7 +717,6 @@ function App() {
                   className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition"
                 >
                   <option value="All">All Categories</option>
-
                   {categories
                     .filter((cat) => cat !== "All")
                     .map((category) => (
@@ -679,11 +823,66 @@ function App() {
                         <p className="leading-6 text-slate-700">{api.description}</p>
                       </div>
 
-                      <div>
-                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Developer
-                        </p>
-                        <p className="font-medium text-slate-900">{api.developer}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Developer
+                          </p>
+                          <p className="font-medium text-slate-900">{api.developer || "N/A"}</p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Language
+                          </p>
+                          <p className="font-medium text-slate-900">{api.programming_language || "N/A"}</p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Framework
+                          </p>
+                          <p className="font-medium text-slate-900">{api.framework || "N/A"}</p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Cost
+                          </p>
+                          <p className="font-medium text-slate-900">{api.cost || "N/A"}</p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Latency
+                          </p>
+                          <p className="font-medium text-slate-900">{api.latency || "N/A"}</p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Scalability
+                          </p>
+                          <p className="font-medium text-slate-900">{api.scalability || "N/A"}</p>
+                        </div>
+
+                        <div className="col-span-2">
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Design Pattern
+                          </p>
+                          <p className="font-medium text-slate-900">{api.design_pattern || "N/A"}</p>
+                        </div>
+
+                        {api.sample_code && (
+                          <div className="col-span-2">
+                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Sample Code
+                            </p>
+                            <pre className="overflow-x-auto rounded-2xl bg-slate-900 p-3 text-xs text-slate-100">
+                              {api.sample_code}
+                            </pre>
+                          </div>
+                        )}
                       </div>
                     </div>
 
