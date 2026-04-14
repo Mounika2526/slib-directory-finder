@@ -63,6 +63,103 @@ def normalize_text(value):
     return value.strip().lower() if value else ""
 
 
+def detect_category(repo_data):
+    topics = repo_data.get("topics", [])
+    description = (repo_data.get("description") or "").lower()
+    language = (repo_data.get("language") or "").lower()
+    name = (repo_data.get("name") or "").lower()
+
+    topic_map = {
+        "api": "API",
+        "rest-api": "API",
+        "rest": "API",
+        "graphql": "API",
+        "microservice": "Microservice",
+        "microservices": "Microservice",
+        "backend": "Backend",
+        "frontend": "Frontend",
+        "web": "Web Application",
+        "website": "Web Application",
+        "ai": "AI/ML",
+        "ml": "AI/ML",
+        "machine-learning": "AI/ML",
+        "deep-learning": "AI/ML",
+        "payment": "Payments",
+        "payments": "Payments",
+        "fintech": "Payments",
+        "auth": "Authentication",
+        "authentication": "Authentication",
+        "oauth": "Authentication",
+        "jwt": "Authentication",
+        "security": "Security",
+        "cybersecurity": "Security",
+        "database": "Database",
+        "sql": "Database",
+        "cloud": "Cloud",
+        "aws": "Cloud",
+        "devops": "DevOps",
+        "docker": "DevOps",
+        "kubernetes": "DevOps",
+        "analytics": "Analytics",
+        "monitoring": "Monitoring",
+        "search": "Search",
+        "recommendation": "Recommendation System",
+        "chatbot": "Chatbot",
+        "iot": "IoT",
+        "blockchain": "Blockchain"
+    }
+
+    # 1. Try GitHub topics first
+    for topic in topics:
+        topic_lower = topic.lower()
+        if topic_lower in topic_map:
+            return topic_map[topic_lower]
+
+    # 2. Try description keywords
+    if "payment" in description or "billing" in description:
+        return "Payments"
+    if "auth" in description or "authentication" in description or "oauth" in description:
+        return "Authentication"
+    if "security" in description or "secure" in description:
+        return "Security"
+    if "machine learning" in description or "deep learning" in description or "artificial intelligence" in description or " ai " in f" {description} ":
+        return "AI/ML"
+    if "analytics" in description or "dashboard" in description:
+        return "Analytics"
+    if "search" in description:
+        return "Search"
+    if "database" in description:
+        return "Database"
+    if "monitoring" in description:
+        return "Monitoring"
+    if "microservice" in description:
+        return "Microservice"
+    if "api" in description or "rest" in description or "graphql" in description:
+        return "API"
+    if "frontend" in description or "ui" in description:
+        return "Frontend"
+    if "backend" in description or "server" in description:
+        return "Backend"
+
+    # 3. Try repo name keywords
+    if "api" in name:
+        return "API"
+    if "auth" in name:
+        return "Authentication"
+    if "search" in name:
+        return "Search"
+    if "payment" in name:
+        return "Payments"
+
+    # 4. Fallback by programming language
+    if language in ["javascript", "typescript", "html", "css"]:
+        return "Frontend"
+    if language in ["python", "java", "go", "ruby", "php", "c#", "rust"]:
+        return "Backend"
+
+    return "Software Tool"
+
+
 @app.route("/")
 def home():
     return jsonify({"message": "Backend is running!"})
@@ -230,9 +327,12 @@ def github_fetch():
         return jsonify({"error": "Invalid format. Use owner/repo"}), 400
 
     github_url = f"https://api.github.com/repos/{repo}"
+    headers = {
+        "Accept": "application/vnd.github.mercy-preview+json"
+    }
 
     try:
-        repo_res = requests.get(github_url, timeout=10)
+        repo_res = requests.get(github_url, headers=headers, timeout=10)
 
         if repo_res.status_code != 200:
             return jsonify({"error": "GitHub repository not found"}), 404
@@ -240,7 +340,7 @@ def github_fetch():
         repo_data = repo_res.json()
 
         release_url = f"https://api.github.com/repos/{repo}/releases/latest"
-        release_res = requests.get(release_url, timeout=10)
+        release_res = requests.get(release_url, headers=headers, timeout=10)
 
         version = "Not available"
         if release_res.status_code == 200:
@@ -249,7 +349,7 @@ def github_fetch():
 
         result = {
             "name": repo_data.get("name", ""),
-            "category": "Microservice" if repo_data.get("language") else "Software Component",
+            "category": detect_category(repo_data),
             "description": repo_data.get("description", "") or "No description available",
             "version": version,
             "developer": repo_data.get("owner", {}).get("login", "") or "Unknown",
