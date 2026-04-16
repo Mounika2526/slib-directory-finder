@@ -1,5 +1,776 @@
+/**
+ * App.jsx — Main application component for SLIB Finder: API & Microservices Directory
+ *
+ * Features:
+ *  - Add / Edit / Delete API entries
+ *  - GitHub auto-fill (fetch repo metadata automatically)
+ *  - Post-fetch review modal: user fills in missing fields (framework, cost, latency, etc.)
+ *  - Sample code generation from language templates (no API key needed)
+ *  - Search & filter by keyword and category
+ *  - Side-by-side comparison of up to 4 APIs
+ *  - Stats Dashboard: charts by category, developer, risk, language
+ */
+
 import { useEffect, useMemo, useState } from "react";
 
+// ─────────────────────────────────────────────
+// BACKEND BASE URL — update if deployment changes
+// ─────────────────────────────────────────────
+const API_BASE = "https://slib-directory-finder.onrender.com";
+
+// ─────────────────────────────────────────────
+// FUZZY SEARCH
+// Implements a lightweight fuzzy matching algorithm so users can
+// find entries even with typos or partial words.
+//
+// Strategy: combine two signals
+//   1. Substring match  — "pay" matches "Payments" (partial search)
+//   2. Character sequence match — checks that every character in the
+//      search term appears in order within the field value.
+//      e.g. "Stipe" matches "Stripe" because S-t-i-p-e all appear
+//      in order inside S-t-r-i-p-e.
+//
+// A field is considered a match if EITHER signal returns true.
+// This satisfies the spec requirement for "partial and fuzzy search."
+// ─────────────────────────────────────────────
+
+/**
+ * fuzzyMatch
+ * Returns true if `term` loosely matches `str`.
+ *
+ * @param {string} str  - The field value to search within (should be lowercased)
+ * @param {string} term - The search query (should be lowercased)
+ * @returns {boolean}
+ */
+function fuzzyMatch(str, term) {
+  if (!str || !term) return false;
+
+  // Signal 1: direct substring — handles normal partial search
+  if (str.includes(term)) return true;
+
+  // Signal 2: character sequence — handles typos and skipped letters
+  // Walk through `str` trying to consume every character in `term` in order
+  let termIndex = 0;
+  for (let i = 0; i < str.length && termIndex < term.length; i++) {
+    if (str[i] === term[termIndex]) termIndex++;
+  }
+  // If we consumed all characters in term, it's a fuzzy match
+  return termIndex === term.length;
+}
+
+/**
+ * fuzzyMatchApi
+ * Returns true if the search term fuzzy-matches ANY searchable field of an API entry.
+ *
+ * @param {object} api  - An ApiEntry object
+ * @param {string} term - Lowercased search query
+ * @returns {boolean}
+ */
+function fuzzyMatchApi(api, term) {
+  if (!term) return true; // empty search shows everything
+
+  const fields = [
+    api.name,
+    api.category,
+    api.description,
+    api.version,
+    api.developer,
+    api.programming_language,
+    api.framework,
+    api.cost,
+    api.latency,
+    api.scalability,
+    api.design_pattern,
+  ];
+
+  return fields.some((field) => fuzzyMatch((field || "").toLowerCase(), term));
+}
+
+// ─────────────────────────────────────────────
+// SAMPLE CODE TEMPLATES
+// Keyed by programming language (lowercase).
+// Each template receives the API name as a parameter.
+// Covers the most common languages found in GitHub repos.
+// ─────────────────────────────────────────────
+const CODE_TEMPLATES = {
+  javascript: (name) =>
+`// ${name} — JavaScript (fetch)
+const response = await fetch('https://api.example.com/v1/endpoint', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY',
+    'Content-Type': 'application/json'
+  }
+});
+const data = await response.json();
+console.log(data);`,
+
+  typescript: (name) =>
+`// ${name} — TypeScript (fetch)
+const response = await fetch('https://api.example.com/v1/endpoint', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY',
+    'Content-Type': 'application/json'
+  }
+});
+const data: Record<string, unknown> = await response.json();
+console.log(data);`,
+
+  python: (name) =>
+`# ${name} — Python (requests)
+import requests
+
+headers = {
+    "Authorization": "Bearer YOUR_API_KEY",
+    "Content-Type": "application/json"
+}
+
+response = requests.get("https://api.example.com/v1/endpoint", headers=headers)
+data = response.json()
+print(data)`,
+
+  java: (name) =>
+`// ${name} — Java (HttpClient)
+import java.net.http.*;
+import java.net.URI;
+
+HttpClient client = HttpClient.newHttpClient();
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/v1/endpoint"))
+    .header("Authorization", "Bearer YOUR_API_KEY")
+    .GET()
+    .build();
+
+HttpResponse<String> response = client.send(request,
+    HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`,
+
+  go: (name) =>
+`// ${name} — Go (net/http)
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "io/ioutil"
+)
+
+req, _ := http.NewRequest("GET", "https://api.example.com/v1/endpoint", nil)
+req.Header.Set("Authorization", "Bearer YOUR_API_KEY")
+
+client := &http.Client{}
+resp, _ := client.Do(req)
+defer resp.Body.Close()
+
+body, _ := ioutil.ReadAll(resp.Body)
+fmt.Println(string(body))`,
+
+  ruby: (name) =>
+`# ${name} — Ruby (Net::HTTP)
+require 'net/http'
+require 'json'
+
+uri = URI('https://api.example.com/v1/endpoint')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = true
+
+request = Net::HTTP::Get.new(uri)
+request['Authorization'] = 'Bearer YOUR_API_KEY'
+
+response = http.request(request)
+puts JSON.parse(response.body)`,
+
+  php: (name) =>
+`<?php
+// ${name} — PHP (cURL)
+$curl = curl_init();
+curl_setopt_array($curl, [
+    CURLOPT_URL => "https://api.example.com/v1/endpoint",
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => [
+        "Authorization: Bearer YOUR_API_KEY",
+        "Content-Type: application/json"
+    ],
+]);
+$response = curl_exec($curl);
+curl_close($curl);
+echo $response;`,
+
+  rust: (name) =>
+`// ${name} — Rust (reqwest)
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+
+let client = reqwest::Client::new();
+let response = client
+    .get("https://api.example.com/v1/endpoint")
+    .header(AUTHORIZATION, "Bearer YOUR_API_KEY")
+    .header(CONTENT_TYPE, "application/json")
+    .send()
+    .await?;
+
+let data = response.text().await?;
+println!("{}", data);`,
+
+  "c#": (name) =>
+`// ${name} — C# (HttpClient)
+using System.Net.Http;
+using System.Net.Http.Headers;
+
+var client = new HttpClient();
+client.DefaultRequestHeaders.Authorization =
+    new AuthenticationHeaderValue("Bearer", "YOUR_API_KEY");
+
+var response = await client.GetAsync("https://api.example.com/v1/endpoint");
+var content = await response.Content.ReadAsStringAsync();
+Console.WriteLine(content);`,
+
+  kotlin: (name) =>
+`// ${name} — Kotlin (OkHttp)
+val client = OkHttpClient()
+val request = Request.Builder()
+    .url("https://api.example.com/v1/endpoint")
+    .addHeader("Authorization", "Bearer YOUR_API_KEY")
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.body?.string())
+}`,
+
+  swift: (name) =>
+`// ${name} — Swift (URLSession)
+var request = URLRequest(url: URL(string: "https://api.example.com/v1/endpoint")!)
+request.setValue("Bearer YOUR_API_KEY", forHTTPHeaderField: "Authorization")
+
+URLSession.shared.dataTask(with: request) { data, response, error in
+    if let data = data {
+        print(String(data: data, encoding: .utf8) ?? "")
+    }
+}.resume()`,
+
+  // Default fallback for any unrecognized language — uses curl (universal)
+  default: (name) =>
+`# ${name} — cURL (universal)
+curl -X GET "https://api.example.com/v1/endpoint" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json"`,
+};
+
+/**
+ * generateSampleCode
+ * Returns a language-specific code template for the given API name and language.
+ *
+ * @param {string} name     - API or library name (used in the comment header)
+ * @param {string} language - Programming language (matched case-insensitively)
+ * @returns {string} - A formatted code snippet string
+ */
+function generateSampleCode(name, language) {
+  const lang = (language || "").toLowerCase().trim();
+  const templateFn = CODE_TEMPLATES[lang] || CODE_TEMPLATES["default"];
+  return templateFn(name);
+}
+
+// ─────────────────────────────────────────────
+// HELPER: Tailwind classes for risk badge color
+// ─────────────────────────────────────────────
+function getRiskBadgeClass(riskLevel) {
+  if (riskLevel === "High") return "bg-red-100 text-red-700";
+  if (riskLevel === "Medium") return "bg-yellow-100 text-yellow-700";
+  return "bg-emerald-100 text-emerald-700";
+}
+
+// ─────────────────────────────────────────────
+// HELPER: Hex color for risk level (used in charts/compare)
+// ─────────────────────────────────────────────
+function getRiskColor(risk) {
+  if (risk === "High") return "#dc2626";
+  if (risk === "Medium") return "#d97706";
+  return "#059669";
+}
+
+// ─────────────────────────────────────────────
+// COMPONENT: ReviewModal
+// Shown after a GitHub fetch to let the user fill in
+// fields that GitHub doesn't provide, and optionally
+// generate a sample code snippet from a language template.
+//
+// Props:
+//   formData        — current form state (pre-filled from GitHub)
+//   onUpdate        — callback(field, value) to update a single field
+//   onGenerateCode  — callback to auto-fill sample_code from template
+//   onConfirm       — callback when user clicks Save / confirm
+//   onCancel        — callback when user dismisses the modal
+// ─────────────────────────────────────────────
+function ReviewModal({ formData, onUpdate, onGenerateCode, onConfirm, onCancel }) {
+  // Fields that GitHub cannot provide — these are what the user needs to fill
+  const missingFields = [
+    { key: "framework", label: "Framework", placeholder: "e.g. REST, GraphQL, gRPC, SDK" },
+    { key: "cost", label: "Cost", placeholder: "e.g. Free, Paid/Premium, Freemium, Open Source" },
+    { key: "latency", label: "Latency", placeholder: "e.g. Low, Medium, High" },
+    { key: "scalability", label: "Scalability", placeholder: "e.g. High, Medium, Low" },
+    { key: "design_pattern", label: "Design Pattern", placeholder: "e.g. REST, GraphQL, Event-Driven, Pub/Sub" },
+  ];
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        background: "rgba(15,23,42,0.7)",
+        backdropFilter: "blur(6px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "24px 16px", overflowY: "auto",
+      }}
+    >
+      <div style={{
+        background: "#fff", borderRadius: 28, width: "100%", maxWidth: 600,
+        boxShadow: "0 32px 80px rgba(0,0,0,0.25)", overflow: "hidden",
+      }}>
+        {/* Modal header */}
+        <div style={{
+          background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%)",
+          padding: "24px 28px",
+        }}>
+          <p style={{ color: "#93c5fd", fontSize: 12, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
+            GitHub Data Fetched ✓
+          </p>
+          <h2 style={{ color: "#fff", fontSize: 20, fontWeight: 800, margin: "0 0 4px 0" }}>
+            Review & Complete Entry
+          </h2>
+          <p style={{ color: "#94a3b8", fontSize: 13, margin: 0 }}>
+            Fill in the fields below that GitHub couldn't provide, then save.
+          </p>
+        </div>
+
+        <div style={{ padding: "24px 28px", maxHeight: "70vh", overflowY: "auto" }}>
+          {/* Read-only summary of what was fetched */}
+          <div style={{
+            background: "#f8fafc", borderRadius: 16, padding: "14px 18px",
+            marginBottom: 20, border: "1px solid #e2e8f0",
+          }}>
+            <p style={{ margin: "0 0 8px 0", fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Fetched from GitHub
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+              {[
+                { label: "Name", value: formData.name },
+                { label: "Developer", value: formData.developer },
+                { label: "Category", value: formData.category },
+                { label: "Language", value: formData.programming_language || "Unknown" },
+                { label: "Version", value: formData.version },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>{label}: </span>
+                  <span style={{ fontSize: 12, color: "#1e293b", fontWeight: 600 }}>{value || "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Fields to fill in manually */}
+          <p style={{ margin: "0 0 12px 0", fontSize: 13, fontWeight: 700, color: "#374151" }}>
+            Please fill in the missing fields:
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+            {missingFields.map((field) => (
+              <div key={field.key}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+                  {field.label}
+                </label>
+                <input
+                  type="text"
+                  value={formData[field.key] || ""}
+                  onChange={(e) => onUpdate(field.key, e.target.value)}
+                  placeholder={field.placeholder}
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    borderRadius: 14, border: "1px solid #cbd5e1",
+                    background: "#f8fafc", padding: "10px 14px",
+                    fontSize: 13, color: "#1e293b", outline: "none",
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Sample code section with template generator */}
+          <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>
+                Sample Code
+              </label>
+              {/* Generate from template button */}
+              <button
+                type="button"
+                onClick={onGenerateCode}
+                style={{
+                  background: "#6366f1", color: "#fff",
+                  border: "none", borderRadius: 10,
+                  padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                ✨ Generate from Template
+              </button>
+            </div>
+            <p style={{ margin: "0 0 8px 0", fontSize: 11, color: "#94a3b8" }}>
+              Language detected: <strong>{formData.programming_language || "Unknown"}</strong> — click Generate to auto-fill a starter snippet, then edit as needed.
+            </p>
+            <textarea
+              value={formData.sample_code || ""}
+              onChange={(e) => onUpdate("sample_code", e.target.value)}
+              placeholder="Paste or generate sample usage code here..."
+              rows={6}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                borderRadius: 14, border: "1px solid #cbd5e1",
+                background: "#0f172a", padding: "12px 14px",
+                fontSize: 12, color: "#e2e8f0", fontFamily: "monospace",
+                outline: "none", resize: "vertical",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{
+          padding: "16px 28px 24px 28px",
+          display: "flex", gap: 12, justifyContent: "flex-end",
+          borderTop: "1px solid #f1f5f9",
+        }}>
+          <button
+            onClick={onCancel}
+            style={{
+              background: "white", color: "#64748b",
+              border: "1px solid #e2e8f0", borderRadius: 14,
+              padding: "10px 20px", fontSize: 13, fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              background: "#3b82f6", color: "#fff",
+              border: "none", borderRadius: 14,
+              padding: "10px 24px", fontSize: 13, fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Save Entry
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// COMPONENT: SimpleBarChart
+// Horizontal bar chart using plain divs.
+// Props: data — [{ label, value, color }], title — string
+// ─────────────────────────────────────────────
+function SimpleBarChart({ data, title }) {
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <div>
+      {title && <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">{title}</p>}
+      <div className="space-y-3">
+        {data.map((item) => (
+          <div key={item.label}>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="truncate text-sm font-medium text-slate-700" style={{ maxWidth: "65%" }}>{item.label}</span>
+              <span className="text-sm font-bold text-slate-900">{item.value}</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${(item.value / max) * 100}%`, background: item.color || "#3b82f6" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// COMPONENT: DonutChart
+// CSS conic-gradient donut chart.
+// Props: segments — [{ label, value, color }], title — string
+// ─────────────────────────────────────────────
+function DonutChart({ segments, title }) {
+  const total = segments.reduce((sum, s) => sum + s.value, 0);
+  if (total === 0) return null;
+
+  let cumulative = 0;
+  const gradient = `conic-gradient(${segments.map((seg) => {
+    const pct = (seg.value / total) * 100;
+    const part = `${seg.color} ${cumulative}% ${cumulative + pct}%`;
+    cumulative += pct;
+    return part;
+  }).join(", ")})`;
+
+  return (
+    <div>
+      {title && <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">{title}</p>}
+      <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
+        <div className="relative flex-shrink-0">
+          <div style={{ width: 140, height: 140, borderRadius: "50%", background: gradient }} />
+          <div style={{
+            position: "absolute", top: "50%", left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: 80, height: 80, borderRadius: "50%", background: "white",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <span className="text-lg font-black text-slate-800">{total}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          {segments.map((seg) => (
+            <div key={seg.label} className="flex items-center gap-2">
+              <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ background: seg.color }} />
+              <span className="text-sm text-slate-700">
+                {seg.label} <span className="font-bold text-slate-900">{seg.value}</span>{" "}
+                <span className="text-slate-400">({Math.round((seg.value / total) * 100)}%)</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// COMPONENT: StatCard — single KPI tile
+// ─────────────────────────────────────────────
+function StatCard({ label, value, color, icon }) {
+  return (
+    <div className="rounded-2xl border p-5 shadow-sm"
+      style={{ borderColor: color + "33", background: color + "0d" }}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide" style={{ color }}>{label}</p>
+          <p className="mt-2 text-3xl font-black text-slate-900">{value}</p>
+        </div>
+        <span className="text-2xl">{icon}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// COMPONENT: StatsTab
+// Full analytics dashboard computed from the API list.
+// Props: apis — full array of API entry objects
+// ─────────────────────────────────────────────
+function StatsTab({ apis }) {
+  // ── Filter state — user can narrow stats by developer or category ──
+  const [filterDeveloper, setFilterDeveloper] = useState("All");
+  const [filterCategory, setFilterCategory] = useState("All");
+
+  // Unique sorted lists for the filter dropdowns
+  const allDevelopers = useMemo(() =>
+    ["All", ...[...new Set(apis.map((a) => a.developer?.trim()).filter(Boolean))].sort()],
+    [apis]
+  );
+  const allCategories = useMemo(() =>
+    ["All", ...[...new Set(apis.map((a) => a.category?.trim()).filter(Boolean))].sort()],
+    [apis]
+  );
+
+  // Apply developer + category filters to the full API list
+  // All charts and KPIs below use this filtered subset
+  const filteredData = useMemo(() => apis.filter((a) => {
+    const matchDev = filterDeveloper === "All" || a.developer?.trim() === filterDeveloper;
+    const matchCat = filterCategory === "All" || a.category?.trim() === filterCategory;
+    return matchDev && matchCat;
+  }), [apis, filterDeveloper, filterCategory]);
+
+  const isFiltered = filterDeveloper !== "All" || filterCategory !== "All";
+
+  // ── Chart data — all computed from filteredData ──
+
+  const categoryCounts = useMemo(() => {
+    const map = {};
+    filteredData.forEach((a) => { const cat = a.category?.trim() || "Unknown"; map[cat] = (map[cat] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1])
+      .map(([label, value], i) => ({ label, value, color: ["#3b82f6","#6366f1","#8b5cf6","#ec4899","#f59e0b","#10b981","#ef4444","#06b6d4","#f97316","#84cc16"][i % 10] }));
+  }, [filteredData]);
+
+  const developerCounts = useMemo(() => {
+    const map = {};
+    filteredData.forEach((a) => { const dev = a.developer?.trim() || "Unknown"; map[dev] = (map[dev] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([label, value], i) => ({ label, value, color: ["#6366f1","#8b5cf6","#a78bfa","#c4b5fd","#ddd6fe","#3b82f6","#60a5fa","#93c5fd","#bfdbfe","#e0f2fe"][i % 10] }));
+  }, [filteredData]);
+
+  const riskCounts = useMemo(() => {
+    const map = { Low: 0, Medium: 0, High: 0 };
+    filteredData.forEach((a) => { const r = a.risk_level || "Medium"; map[r] = (map[r] || 0) + 1; });
+    return [
+      { label: "Low", value: map.Low, color: "#10b981" },
+      { label: "Medium", value: map.Medium, color: "#f59e0b" },
+      { label: "High", value: map.High, color: "#ef4444" },
+    ].filter((s) => s.value > 0);
+  }, [filteredData]);
+
+  const languageCounts = useMemo(() => {
+    const map = {};
+    filteredData.forEach((a) => { const lang = a.programming_language?.trim() || "Unknown"; map[lang] = (map[lang] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([label, value], i) => ({ label, value, color: ["#10b981","#14b8a6","#06b6d4","#0ea5e9","#3b82f6","#6366f1","#8b5cf6","#ec4899"][i % 8] }));
+  }, [filteredData]);
+
+  const costCounts = useMemo(() => {
+    const map = {};
+    filteredData.forEach((a) => { const cost = a.cost?.trim() || "Unknown"; map[cost] = (map[cost] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([label, value], i) => ({ label, value, color: ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#94a3b8"][i % 6] }));
+  }, [filteredData]);
+
+  const patternCounts = useMemo(() => {
+    const map = {};
+    filteredData.forEach((a) => { const p = a.design_pattern?.trim() || "Unknown"; map[p] = (map[p] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([label, value], i) => ({ label, value, color: ["#f97316","#eab308","#84cc16","#06b6d4","#a855f7","#ec4899"][i % 6] }));
+  }, [filteredData]);
+
+  const scalabilityCounts = useMemo(() => {
+    const map = {};
+    filteredData.forEach((a) => { const s = a.scalability?.trim() || "Unknown"; map[s] = (map[s] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1])
+      .map(([label, value], i) => ({ label, value, color: ["#10b981","#3b82f6","#f59e0b","#ef4444","#8b5cf6","#94a3b8"][i % 6] }));
+  }, [filteredData]);
+
+  const topDevelopers = developerCounts.slice(0, 5);
+
+  // KPI tiles — reflect the filtered subset
+  const totalApis = filteredData.length;
+  const uniqueCategories = new Set(filteredData.map((a) => a.category?.trim()).filter(Boolean)).size;
+  const uniqueDevelopers = new Set(filteredData.map((a) => a.developer?.trim()).filter(Boolean)).size;
+  const lowRiskCount = filteredData.filter((a) => (a.risk_level || "Medium") === "Low").length;
+
+  return (
+    <div className="space-y-8">
+
+      {/* ── Stats Filter Bar ── */}
+      <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-600">🔍 Filter Stats By:</span>
+          </div>
+
+          {/* Developer filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Developer</label>
+            <select
+              value={filterDeveloper}
+              onChange={(e) => setFilterDeveloper(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {allDevelopers.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+
+          {/* Category filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Category</label>
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Reset button — only shown when a filter is active */}
+          {isFiltered && (
+            <button
+              onClick={() => { setFilterDeveloper("All"); setFilterCategory("All"); }}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100"
+            >
+              Reset
+            </button>
+          )}
+
+          {/* Active filter label */}
+          {isFiltered && (
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+              Showing {filteredData.length} of {apis.length} APIs
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label={isFiltered ? "Filtered APIs" : "Total APIs"} value={totalApis} color="#3b82f6" icon="📦" />
+        <StatCard label="Categories" value={uniqueCategories} color="#8b5cf6" icon="🗂️" />
+        <StatCard label="Developers" value={uniqueDevelopers} color="#10b981" icon="👩‍💻" />
+        <StatCard label="Low Risk" value={lowRiskCount} color="#059669" icon="✅" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <SimpleBarChart data={categoryCounts} title="APIs by Category" />
+        </div>
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <DonutChart segments={riskCounts} title="Risk Level Distribution" />
+        </div>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <SimpleBarChart data={developerCounts} title="Top Developers by API Count" />
+        </div>
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <SimpleBarChart data={languageCounts} title="Programming Languages" />
+        </div>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <DonutChart segments={costCounts} title="Cost Model Breakdown" />
+        </div>
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <SimpleBarChart data={patternCounts} title="Design Patterns" />
+        </div>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <DonutChart segments={scalabilityCounts.slice(0, 5).map((s, i) => ({
+            ...s, color: ["#10b981","#3b82f6","#f59e0b","#ef4444","#94a3b8"][i],
+          }))} title="Scalability Distribution" />
+        </div>
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Developer Leaderboard</p>
+          <div className="space-y-3">
+            {topDevelopers.map((dev, idx) => (
+              <div key={dev.label} className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-black text-white"
+                  style={{ background: idx === 0 ? "#f59e0b" : idx === 1 ? "#94a3b8" : idx === 2 ? "#b45309" : "#6366f1" }}>
+                  {idx + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-800">{dev.label}</p>
+                </div>
+                <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-bold text-blue-700">
+                  {dev.value} API{dev.value !== 1 ? "s" : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// COMPONENT: CompareModal
+// Full-screen overlay showing selected APIs side by side.
+// Props: apis — [ApiEntry], onClose — callback
+// ─────────────────────────────────────────────
 function CompareModal({ apis, onClose }) {
   if (!apis || apis.length < 2) return null;
 
@@ -16,31 +787,27 @@ function CompareModal({ apis, onClose }) {
     { label: "Risk Level", key: "risk_level" },
   ];
 
-  const getRiskColor = (risk) => {
-    if (risk === "High") return "#dc2626";
-    if (risk === "Medium") return "#d97706";
-    return "#059669";
-  };
-
   const colWidth = apis.length === 2 ? "1fr 1fr" : apis.length === 3 ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr";
+  const diffColors = [
+    { bg: "#fffbeb", border: "#fde68a" },
+    { bg: "#f0fdf4", border: "#bbf7d0" },
+    { bg: "#eff6ff", border: "#bfdbfe" },
+    { bg: "#fdf4ff", border: "#e9d5ff" },
+  ];
 
   return (
-    <div
-      style={{
-        position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(15,23,42,0.7)",
-        backdropFilter: "blur(6px)",
-        display: "flex", alignItems: "flex-start", justifyContent: "center",
-        padding: "40px 16px", overflowY: "auto",
-      }}
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1000,
+      background: "rgba(15,23,42,0.7)", backdropFilter: "blur(6px)",
+      display: "flex", alignItems: "flex-start", justifyContent: "center",
+      padding: "40px 16px", overflowY: "auto",
+    }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div style={{
         background: "#fff", borderRadius: 28, width: "100%", maxWidth: 1100,
-        boxShadow: "0 32px 80px rgba(0,0,0,0.25)",
-        overflow: "hidden", flexShrink: 0,
+        boxShadow: "0 32px 80px rgba(0,0,0,0.25)", overflow: "hidden", flexShrink: 0,
       }}>
-        {/* Header */}
         <div style={{
           background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%)",
           padding: "28px 32px", display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -53,23 +820,13 @@ function CompareModal({ apis, onClose }) {
               Comparing {apis.length} APIs
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-              color: "#fff", borderRadius: 12, width: 40, height: 40,
-              fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "background 0.2s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.2)"}
-            onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-          >
-            ×
-          </button>
+          <button onClick={onClose} style={{
+            background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+            color: "#fff", borderRadius: 12, width: 40, height: 40,
+            fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>×</button>
         </div>
-
         <div style={{ padding: "0 32px 32px 32px", overflowX: "auto" }}>
-          {/* API Name Headers */}
           <div style={{
             display: "grid", gridTemplateColumns: `180px ${colWidth}`,
             gap: 16, paddingTop: 28, paddingBottom: 20,
@@ -77,138 +834,66 @@ function CompareModal({ apis, onClose }) {
           }}>
             <div />
             {apis.map((api) => (
-              <div key={api.id} style={{
-                background: "linear-gradient(135deg, #eff6ff, #eef2ff)",
-                borderRadius: 20, padding: "18px 20px",
-                border: "1px solid #bfdbfe",
-              }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: 17, fontWeight: 800, color: "#1e293b" }}>
-                  {api.name}
-                </h3>
+              <div key={api.id} style={{ background: "linear-gradient(135deg, #eff6ff, #eef2ff)", borderRadius: 20, padding: "18px 20px", border: "1px solid #bfdbfe" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: 17, fontWeight: 800, color: "#1e293b" }}>{api.name}</h3>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{
-                    background: "#dbeafe", color: "#1d4ed8",
-                    borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600,
-                  }}>{api.category}</span>
-                  <span style={{
-                    background: api.risk_level === "High" ? "#fee2e2" : api.risk_level === "Medium" ? "#fef3c7" : "#d1fae5",
-                    color: getRiskColor(api.risk_level),
-                    borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600,
-                  }}>{api.risk_level || "Medium"} Risk</span>
+                  <span style={{ background: "#dbeafe", color: "#1d4ed8", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>{api.category}</span>
+                  <span style={{ background: api.risk_level === "High" ? "#fee2e2" : api.risk_level === "Medium" ? "#fef3c7" : "#d1fae5", color: getRiskColor(api.risk_level), borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>{api.risk_level || "Medium"} Risk</span>
                 </div>
               </div>
             ))}
           </div>
-
-          {/* Description Row */}
-          <div style={{
-            display: "grid", gridTemplateColumns: `180px ${colWidth}`,
-            gap: 16, padding: "16px 0", borderBottom: "1px solid #f1f5f9",
-          }}>
+          <div style={{ display: "grid", gridTemplateColumns: `180px ${colWidth}`, gap: 16, padding: "16px 0", borderBottom: "1px solid #f1f5f9" }}>
             <div style={{ display: "flex", alignItems: "center" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Description
-              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>Description</span>
             </div>
             {apis.map((api) => (
-              <div key={api.id} style={{ padding: "4px 0" }}>
-                <p style={{ margin: 0, fontSize: 13, color: "#475569", lineHeight: 1.6 }}>
-                  {api.description || "—"}
-                </p>
-              </div>
+              <p key={api.id} style={{ margin: 0, fontSize: 13, color: "#475569", lineHeight: 1.6 }}>{api.description || "—"}</p>
             ))}
           </div>
-
-          {/* Property Rows */}
           {fields.map((field, i) => {
-            const values = apis.map(a => a[field.key] || "—");
-            const allSame = values.every(v => v === values[0]);
-
+            const values = apis.map((a) => a[field.key] || "—");
+            const allSame = values.every((v) => v === values[0]);
             return (
               <div key={field.key} style={{
                 display: "grid", gridTemplateColumns: `180px ${colWidth}`,
-                gap: 16, padding: "14px 0",
-                borderBottom: "1px solid #f8fafc",
-                background: i % 2 === 0 ? "transparent" : "#fafbff",
-                borderRadius: 8,
+                gap: 16, padding: "14px 0", borderBottom: "1px solid #f8fafc",
+                background: i % 2 === 0 ? "transparent" : "#fafbff", borderRadius: 8,
               }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                    {field.label}
-                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>{field.label}</span>
                 </div>
                 {apis.map((api, idx) => {
                   const val = api[field.key] || "—";
-                  const isRisk = field.key === "risk_level";
-                  const isDiff = !allSame;
-
                   return (
-                    <div key={api.id} style={{
-                      padding: "6px 12px",
-                      background: isDiff ? (idx === 0 ? "#fffbeb" : idx === 1 ? "#f0fdf4" : idx === 2 ? "#eff6ff" : "#fdf4ff") : "transparent",
-                      borderRadius: 10,
-                      border: isDiff ? "1px solid " + (idx === 0 ? "#fde68a" : idx === 1 ? "#bbf7d0" : idx === 2 ? "#bfdbfe" : "#e9d5ff") : "none",
-                    }}>
-                      {isRisk ? (
-                        <span style={{
-                          color: getRiskColor(val),
-                          fontWeight: 700, fontSize: 13,
-                        }}>{val}</span>
-                      ) : (
-                        <span style={{ fontSize: 13, fontWeight: 600, color: val === "—" ? "#cbd5e1" : "#1e293b" }}>
-                          {val}
-                        </span>
-                      )}
+                    <div key={api.id} style={{ padding: "6px 12px", background: !allSame ? diffColors[idx % 4].bg : "transparent", borderRadius: 10, border: !allSame ? `1px solid ${diffColors[idx % 4].border}` : "none" }}>
+                      {field.key === "risk_level"
+                        ? <span style={{ color: getRiskColor(val), fontWeight: 700, fontSize: 13 }}>{val}</span>
+                        : <span style={{ fontSize: 13, fontWeight: 600, color: val === "—" ? "#cbd5e1" : "#1e293b" }}>{val}</span>
+                      }
                     </div>
                   );
                 })}
               </div>
             );
           })}
-
-          {/* Sample Code Rows */}
-          {apis.some(a => a.sample_code) && (
-            <>
-              <div style={{
-                display: "grid", gridTemplateColumns: `180px ${colWidth}`,
-                gap: 16, padding: "20px 0 8px 0",
-                borderTop: "2px solid #f1f5f9", marginTop: 8,
-              }}>
-                <div style={{ display: "flex", alignItems: "flex-start", paddingTop: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                    Sample Code
-                  </span>
-                </div>
-                {apis.map((api) => (
-                  <div key={api.id}>
-                    {api.sample_code ? (
-                      <pre style={{
-                        margin: 0, padding: "14px 16px",
-                        background: "#0f172a", color: "#e2e8f0",
-                        borderRadius: 14, fontSize: 11, lineHeight: 1.6,
-                        overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
-                        maxHeight: 160,
-                      }}>
-                        {api.sample_code}
-                      </pre>
-                    ) : (
-                      <span style={{ fontSize: 13, color: "#cbd5e1" }}>—</span>
-                    )}
-                  </div>
-                ))}
+          {apis.some((a) => a.sample_code) && (
+            <div style={{ display: "grid", gridTemplateColumns: `180px ${colWidth}`, gap: 16, padding: "20px 0 8px 0", borderTop: "2px solid #f1f5f9", marginTop: 8 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", paddingTop: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>Sample Code</span>
               </div>
-            </>
+              {apis.map((api) => (
+                <div key={api.id}>
+                  {api.sample_code
+                    ? <pre style={{ margin: 0, padding: "14px 16px", background: "#0f172a", color: "#e2e8f0", borderRadius: 14, fontSize: 11, lineHeight: 1.6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 160 }}>{api.sample_code}</pre>
+                    : <span style={{ fontSize: 13, color: "#cbd5e1" }}>—</span>
+                  }
+                </div>
+              ))}
+            </div>
           )}
-
-          {/* Diff legend */}
-          <div style={{
-            marginTop: 24, padding: "14px 20px",
-            background: "#f8fafc", borderRadius: 16,
-            display: "flex", alignItems: "center", gap: 10,
-          }}>
-            <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>
-              💡 Highlighted cells indicate differences between entries
-            </span>
+          <div style={{ marginTop: 24, padding: "14px 20px", background: "#f8fafc", borderRadius: 16 }}>
+            <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>💡 Highlighted cells indicate differences between entries</span>
           </div>
         </div>
       </div>
@@ -216,7 +901,13 @@ function CompareModal({ apis, onClose }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// COMPONENT: App (root)
+// Manages all global state and renders the full page.
+// Tabs: "directory" | "stats"
+// ─────────────────────────────────────────────
 function App() {
+  // ── Core state ──────────────────────────────
   const [apis, setApis] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -227,47 +918,37 @@ function App() {
   const [editId, setEditId] = useState(null);
   const [githubRepo, setGithubRepo] = useState("");
   const [fetchingGithub, setFetchingGithub] = useState(false);
+  const [activeTab, setActiveTab] = useState("directory");
 
   // Compare state
   const [compareIds, setCompareIds] = useState([]);
   const [showCompare, setShowCompare] = useState(false);
 
+  // Review modal state — shown after GitHub fetch
+  const [showReview, setShowReview] = useState(false);
+
+  // Form fields (controlled inputs)
   const [formData, setFormData] = useState({
-    name: "",
-    category: "",
-    description: "",
-    version: "",
-    developer: "",
-    programming_language: "",
-    framework: "",
-    cost: "",
-    latency: "",
-    scalability: "",
-    design_pattern: "",
-    sample_code: "",
+    name: "", category: "", description: "", version: "", developer: "",
+    programming_language: "", framework: "", cost: "", latency: "",
+    scalability: "", design_pattern: "", sample_code: "",
   });
 
+  // ── Data fetching ────────────────────────────
+
+  /** Load all API entries from the backend */
   const fetchApis = () => {
     setLoading(true);
     setError("");
-
-    fetch("https://slib-directory-finder.onrender.com/api/apis")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch APIs");
-        return res.json();
-      })
-      .then((data) => {
-        setApis(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+    fetch(`${API_BASE}/api/apis`)
+      .then((res) => { if (!res.ok) throw new Error("Failed to fetch APIs"); return res.json(); })
+      .then((data) => { setApis(data); setLoading(false); })
+      .catch((err) => { setError(err.message); setLoading(false); });
   };
 
   useEffect(() => { fetchApis(); }, []);
 
+  // Auto-clear success messages after 2.5 seconds
   useEffect(() => {
     if (successMessage) {
       const timer = setTimeout(() => setSuccessMessage(""), 2500);
@@ -275,8 +956,15 @@ function App() {
     }
   }, [successMessage]);
 
+  // ── Form handlers ────────────────────────────
+
+  /** Update a single form field */
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
+  /** Update a field by key (used by ReviewModal) */
+  const handleReviewUpdate = (key, value) => setFormData((prev) => ({ ...prev, [key]: value }));
+
+  /** Reset form to empty state and exit edit mode */
   const resetForm = () => {
     setFormData({
       name: "", category: "", description: "", version: "", developer: "",
@@ -287,23 +975,25 @@ function App() {
     setEditId(null);
   };
 
+  /** Generate sample code from template and inject into formData */
+  const handleGenerateCode = () => {
+    const code = generateSampleCode(formData.name, formData.programming_language);
+    setFormData((prev) => ({ ...prev, sample_code: code }));
+  };
+
+  /** Submit form: POST (add) or PUT (edit) */
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccessMessage("");
-    setSubmitting(true);
-
+    setError(""); setSuccessMessage(""); setSubmitting(true);
     try {
-      const url = editId
-        ? `https://slib-directory-finder.onrender.com/api/apis/${editId}`
-        : "https://slib-directory-finder.onrender.com/api/apis";
+      const url = editId ? `${API_BASE}/api/apis/${editId}` : `${API_BASE}/api/apis`;
       const method = editId ? "PUT" : "POST";
 
+      // Client-side duplicate check
       if (!editId) {
         const alreadyExists = apis.some(
-          (api) =>
-            api.name?.toLowerCase() === formData.name.toLowerCase() &&
-            api.developer?.toLowerCase() === formData.developer.toLowerCase()
+          (api) => api.name?.toLowerCase() === formData.name.toLowerCase() &&
+                   api.developer?.toLowerCase() === formData.developer.toLowerCase()
         );
         if (alreadyExists) { setError("This API entry already exists."); setSubmitting(false); return; }
       }
@@ -325,24 +1015,33 @@ function App() {
     }
   };
 
+  /**
+   * GitHub fetch — fills form with available data,
+   * then opens the ReviewModal for the user to fill missing fields.
+   */
   const handleGithubFetch = async () => {
     if (!githubRepo.trim()) { setError("Please enter a GitHub repository in owner/repo format."); return; }
     setError(""); setSuccessMessage(""); setFetchingGithub(true);
     try {
-      const res = await fetch("https://slib-directory-finder.onrender.com/api/github-fetch", {
+      const res = await fetch(`${API_BASE}/api/github-fetch`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo: githubRepo }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch GitHub repository data");
+
+      // Pre-fill form with whatever GitHub gave us
       setFormData({
-        name: data.name || "", category: data.category || "", description: data.description || "",
-        version: data.version || "", developer: data.developer || "",
-        programming_language: data.programming_language || "", framework: data.framework || "",
-        cost: data.cost || "", latency: data.latency || "", scalability: data.scalability || "",
-        design_pattern: data.design_pattern || "", sample_code: data.sample_code || "",
+        name: data.name || "", category: data.category || "",
+        description: data.description || "", version: data.version || "",
+        developer: data.developer || "", programming_language: data.programming_language || "",
+        framework: "", cost: "", latency: "", scalability: "",
+        design_pattern: "", sample_code: "",
       });
-      setSuccessMessage("GitHub repository data fetched successfully.");
+
+      // Open review modal so user fills in the missing fields
+      setShowReview(true);
+      setSuccessMessage("GitHub data fetched — please fill in the missing fields.");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -350,66 +1049,53 @@ function App() {
     }
   };
 
-  const handleGithubFetchAndSave = async () => {
-    if (!githubRepo.trim()) { setError("Please enter a GitHub repository in owner/repo format."); return; }
-    setError(""); setSuccessMessage(""); setFetchingGithub(true);
+  /**
+   * Called when user clicks "Save Entry" in the ReviewModal.
+   * Saves the completed form data to the backend.
+   */
+  const handleReviewConfirm = async () => {
+    setShowReview(false);
+    setError(""); setSuccessMessage(""); setSubmitting(true);
     try {
-      const res = await fetch("https://slib-directory-finder.onrender.com/api/github-fetch", {
+      const alreadyExists = apis.some(
+        (api) => api.name?.toLowerCase() === formData.name.toLowerCase() &&
+                 api.developer?.toLowerCase() === formData.developer.toLowerCase()
+      );
+      if (alreadyExists) { setError("This API entry already exists."); setSubmitting(false); return; }
+
+      const res = await fetch(`${API_BASE}/api/apis`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: githubRepo }),
+        body: JSON.stringify(formData),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to fetch GitHub repository data");
+      if (!res.ok) throw new Error(data.error || "Failed to save API");
 
-      const fetchedFormData = {
-        name: data.name || "", category: data.category || "", description: data.description || "",
-        version: data.version || "", developer: data.developer || "",
-        programming_language: data.programming_language || "", framework: data.framework || "",
-        cost: data.cost || "", latency: data.latency || "", scalability: data.scalability || "",
-        design_pattern: data.design_pattern || "", sample_code: data.sample_code || "",
-      };
-      setFormData(fetchedFormData);
-
-      const alreadyExists = apis.some(
-        (api) =>
-          api.name?.toLowerCase() === fetchedFormData.name.toLowerCase() &&
-          api.developer?.toLowerCase() === fetchedFormData.developer.toLowerCase()
-      );
-      if (alreadyExists) { setError("This API entry already exists."); setFetchingGithub(false); return; }
-
-      const saveRes = await fetch("https://slib-directory-finder.onrender.com/api/apis", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fetchedFormData),
-      });
-      const saveData = await saveRes.json();
-      if (!saveRes.ok) throw new Error(saveData.error || "Fetched successfully, but failed to save API");
-
-      setSuccessMessage("GitHub repository data fetched and saved successfully.");
-      setGithubRepo("");
+      setSuccessMessage("API saved successfully.");
       resetForm();
       fetchApis();
     } catch (err) {
       setError(err.message);
     } finally {
-      setFetchingGithub(false);
+      setSubmitting(false);
     }
   };
 
+  /** Delete an entry after confirmation */
   const handleDelete = async (id) => {
-    const confirmed = window.confirm("Are you sure you want to delete this API?");
-    if (!confirmed) return;
+    if (!window.confirm("Are you sure you want to delete this API?")) return;
     setError(""); setSuccessMessage("");
     try {
-      const res = await fetch(`https://slib-directory-finder.onrender.com/api/apis/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE}/api/apis/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete API");
       setSuccessMessage("API deleted successfully.");
-      setCompareIds(prev => prev.filter(cid => cid !== id));
+      setCompareIds((prev) => prev.filter((cid) => cid !== id));
       fetchApis();
     } catch (err) {
       setError(err.message);
     }
   };
 
+  /** Populate form with existing entry data for editing */
   const handleEdit = (api) => {
     setFormData({
       name: api.name || "", category: api.category || "", description: api.description || "",
@@ -419,42 +1105,36 @@ function App() {
       design_pattern: api.design_pattern || "", sample_code: api.sample_code || "",
     });
     setEditId(api.id);
-    setSuccessMessage("");
-    setError("");
+    setSuccessMessage(""); setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
+    setActiveTab("directory");
   };
 
-  // Compare handlers
+  // ── Compare handlers ─────────────────────────
+
+  /** Toggle an API in/out of compare selection (max 4) */
   const toggleCompare = (id) => {
-    setCompareIds(prev => {
-      if (prev.includes(id)) return prev.filter(cid => cid !== id);
-      if (prev.length >= 4) return prev; // max 4
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((cid) => cid !== id);
+      if (prev.length >= 4) return prev;
       return [...prev, id];
     });
   };
 
-  const compareApis = useMemo(() => apis.filter(a => compareIds.includes(a.id)), [apis, compareIds]);
+  const compareApis = useMemo(() => apis.filter((a) => compareIds.includes(a.id)), [apis, compareIds]);
+
+  // ── Derived UI data ──────────────────────────
 
   const categories = useMemo(() => {
-    const uniqueCategories = [...new Set(apis.map((api) => api.category?.trim()).filter(Boolean))].sort();
-    return ["All", ...uniqueCategories];
+    const unique = [...new Set(apis.map((api) => api.category?.trim()).filter(Boolean))].sort();
+    return ["All", ...unique];
   }, [apis]);
 
   const filteredApis = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
     return apis.filter((api) => {
-      const term = searchTerm.toLowerCase();
-      const matchesSearch =
-        api.name?.toLowerCase().includes(term) ||
-        api.category?.toLowerCase().includes(term) ||
-        api.description?.toLowerCase().includes(term) ||
-        api.version?.toLowerCase().includes(term) ||
-        api.developer?.toLowerCase().includes(term) ||
-        api.programming_language?.toLowerCase().includes(term) ||
-        api.framework?.toLowerCase().includes(term) ||
-        api.cost?.toLowerCase().includes(term) ||
-        api.latency?.toLowerCase().includes(term) ||
-        api.scalability?.toLowerCase().includes(term) ||
-        api.design_pattern?.toLowerCase().includes(term);
+      // Use fuzzy matching — handles typos, partial words, and character sequences
+      const matchesSearch = fuzzyMatchApi(api, term);
       const matchesCategory = selectedCategory === "All" || api.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
@@ -464,17 +1144,12 @@ function App() {
   const totalCategories = Math.max(categories.length - 1, 0);
   const uniqueDevelopers = new Set(apis.map((api) => api.developer?.trim()).filter(Boolean)).size;
 
-  const getRiskBadgeClass = (riskLevel) => {
-    if (riskLevel === "High") return "bg-red-100 text-red-700";
-    if (riskLevel === "Medium") return "bg-yellow-100 text-yellow-700";
-    return "bg-emerald-100 text-emerald-700";
-  };
-
+  // ── Render ───────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-8 md:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
 
-        {/* Header */}
+        {/* ── Page Header ── */}
         <div className="mb-8 overflow-hidden rounded-[28px] border border-white/60 bg-white/80 shadow-xl backdrop-blur">
           <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 px-6 py-8 text-white md:px-8 md:py-10">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -504,9 +1179,25 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {/* Tab navigation */}
+            <div className="mt-6 flex gap-2">
+              {["directory", "stats"].map((tab) => (
+                <button key={tab} onClick={() => setActiveTab(tab)}
+                  className="rounded-2xl px-5 py-2.5 text-sm font-bold transition"
+                  style={{
+                    background: activeTab === tab ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.1)",
+                    color: activeTab === tab ? "#1e3a5f" : "rgba(255,255,255,0.8)",
+                    border: activeTab === tab ? "none" : "1px solid rgba(255,255,255,0.2)",
+                  }}>
+                  {tab === "directory" ? "📋 Directory" : "📊 Stats Dashboard"}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
+        {/* Global alerts */}
         {successMessage && (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-700 shadow-sm">
             <span className="font-medium">Success:</span> {successMessage}
@@ -518,376 +1209,335 @@ function App() {
           </div>
         )}
 
-        {/* ── COMPARE TOOLBAR ── */}
-        {compareIds.length > 0 && (
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white">
-                {compareIds.length} selected
-              </span>
-              <span className="text-sm font-medium text-blue-800">
-                {compareIds.length < 2
-                  ? `Select ${2 - compareIds.length} more to compare`
-                  : compareIds.length < 4
-                  ? `Ready to compare — or add up to ${4 - compareIds.length} more`
-                  : "Maximum 4 APIs selected"}
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {compareApis.map(a => (
-                  <span key={a.id} className="inline-flex items-center gap-1.5 rounded-full bg-white border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
-                    {a.name}
-                    <button
-                      onClick={() => toggleCompare(a.id)}
-                      className="text-blue-400 hover:text-blue-700 leading-none"
-                      style={{ fontSize: 14, lineHeight: 1 }}
-                    >×</button>
+        {/* Stats tab */}
+        {activeTab === "stats" && <StatsTab apis={apis} />}
+
+        {/* Directory tab */}
+        {activeTab === "directory" && (
+          <>
+            {/* Compare toolbar */}
+            {compareIds.length > 0 && (
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white">{compareIds.length} selected</span>
+                  <span className="text-sm font-medium text-blue-800">
+                    {compareIds.length < 2 ? `Select ${2 - compareIds.length} more to compare`
+                      : compareIds.length < 4 ? `Ready — or add up to ${4 - compareIds.length} more`
+                      : "Maximum 4 APIs selected"}
                   </span>
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-3">
-              {compareIds.length >= 2 && (
-                <button
-                  onClick={() => setShowCompare(true)}
-                  className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
-                >
-                  ⚖️ Compare Now
-                </button>
-              )}
-              <button
-                onClick={() => setCompareIds([])}
-                className="rounded-2xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="grid gap-8 lg:grid-cols-3">
-          {/* Left: Form */}
-          <div className="lg:col-span-1">
-            <div className="sticky top-6 rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-lg">
-              <div className="mb-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">
-                      {editId ? "Edit API Entry" : "Add New API"}
-                    </h2>
-                    <p className="mt-1 text-sm text-slate-500">Enter the API details below.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {compareApis.map((a) => (
+                      <span key={a.id} className="inline-flex items-center gap-1.5 rounded-full bg-white border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
+                        {a.name}
+                        <button onClick={() => toggleCompare(a.id)} style={{ fontSize: 14, lineHeight: 1 }} className="text-blue-400 hover:text-blue-700">×</button>
+                      </span>
+                    ))}
                   </div>
-                  {editId && (
-                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Editing</span>
+                </div>
+                <div className="flex gap-3">
+                  {compareIds.length >= 2 && (
+                    <button onClick={() => setShowCompare(true)}
+                      className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-blue-700">
+                      ⚖️ Compare Now
+                    </button>
                   )}
-                </div>
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">GitHub Repository</label>
-                  <div className="flex gap-3">
-                    <input
-                      type="text" placeholder="Ex: facebook/react" value={githubRepo}
-                      onChange={(e) => setGithubRepo(e.target.value)}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                    />
-                    <button type="button" onClick={handleGithubFetch} disabled={fetchingGithub}
-                      className="rounded-2xl bg-indigo-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-70">
-                      {fetchingGithub ? "..." : "Auto Fill"}
-                    </button>
-                    <button type="button" onClick={handleGithubFetchAndSave} disabled={fetchingGithub}
-                      className="rounded-2xl bg-emerald-600 px-4 py-3 font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:opacity-70">
-                      {fetchingGithub ? "..." : "Fill & Save"}
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Enter a repository in owner/repo format to auto-fill the form.</p>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">API Name</label>
-                  <input type="text" name="name" placeholder="Ex: Stripe API" value={formData.name} onChange={handleChange} required
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Category</label>
-                  <input type="text" name="category" placeholder="Ex: Payments" value={formData.category} onChange={handleChange} required
-                    className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Description</label>
-                  <textarea name="description" placeholder="Write a short description about this API or microservice..." value={formData.description} onChange={handleChange} required rows={4}
-                    className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Version</label>
-                    <input type="text" name="version" placeholder="Ex: v1.0.0" value={formData.version} onChange={handleChange} required
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Developer</label>
-                    <input type="text" name="developer" placeholder="Ex: Internal Team" value={formData.developer} onChange={handleChange} required
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Programming Language</label>
-                    <input type="text" name="programming_language" placeholder="Ex: JavaScript" value={formData.programming_language} onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Framework</label>
-                    <input type="text" name="framework" placeholder="Ex: Express" value={formData.framework} onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Cost</label>
-                    <input type="text" name="cost" placeholder="Ex: Free / Paid / Freemium" value={formData.cost} onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Latency</label>
-                    <input type="text" name="latency" placeholder="Ex: Low / Medium / High" value={formData.latency} onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Scalability</label>
-                    <input type="text" name="scalability" placeholder="Ex: High" value={formData.scalability} onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Design Pattern</label>
-                    <input type="text" name="design_pattern" placeholder="Ex: REST" value={formData.design_pattern} onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Sample Code</label>
-                  <textarea name="sample_code" placeholder="Paste sample usage code here..." value={formData.sample_code} onChange={handleChange} rows={5}
-                    className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                </div>
-
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <button type="submit" disabled={submitting}
-                    className="rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70">
-                    {submitting ? (editId ? "Updating..." : "Adding...") : editId ? "Update API" : "Add API"}
-                  </button>
-                  <button type="button" onClick={resetForm}
-                    className="rounded-2xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100">
+                  <button onClick={() => setCompareIds([])}
+                    className="rounded-2xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-50">
                     Clear
                   </button>
-                  {editId && (
-                    <button type="button" onClick={resetForm}
-                      className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3 font-semibold text-amber-700 transition hover:bg-amber-100">
-                      Cancel Edit
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-8 lg:grid-cols-3">
+              {/* ── Add / Edit form ── */}
+              <div className="lg:col-span-1">
+                <div className="sticky top-6 rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-lg">
+                  <div className="mb-6 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900">{editId ? "Edit API Entry" : "Add New API"}</h2>
+                      <p className="mt-1 text-sm text-slate-500">Enter the API details below.</p>
+                    </div>
+                    {editId && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Editing</span>}
+                  </div>
+
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* GitHub auto-fill */}
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">GitHub Repository</label>
+                      <div className="flex gap-3">
+                        <input type="text" placeholder="Ex: facebook/react" value={githubRepo}
+                          onChange={(e) => setGithubRepo(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleGithubFetch()}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                        <button type="button" onClick={handleGithubFetch} disabled={fetchingGithub}
+                          className="whitespace-nowrap rounded-2xl bg-indigo-600 px-5 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-70">
+                          {fetchingGithub ? "Fetching..." : "🔍 Fetch & Review"}
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Enter a GitHub repo (owner/repo) — fetches available data then opens a review form to fill in the rest and generate sample code.
+                      </p>
+                    </div>
+
+                    {/* Required fields */}
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">API Name</label>
+                      <input type="text" name="name" placeholder="Ex: Stripe API" value={formData.name} onChange={handleChange} required
+                        className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Category</label>
+                      <input type="text" name="category" placeholder="Ex: Payments" value={formData.category} onChange={handleChange} required
+                        className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Description</label>
+                      <textarea name="description" placeholder="Write a short description..." value={formData.description} onChange={handleChange} required rows={4}
+                        className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Version</label>
+                        <input type="text" name="version" placeholder="Ex: v1.0.0" value={formData.version} onChange={handleChange} required
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Developer</label>
+                        <input type="text" name="developer" placeholder="Ex: Internal Team" value={formData.developer} onChange={handleChange} required
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Programming Language</label>
+                        <input type="text" name="programming_language" placeholder="Ex: JavaScript" value={formData.programming_language} onChange={handleChange}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Framework</label>
+                        <input type="text" name="framework" placeholder="Ex: REST, GraphQL" value={formData.framework} onChange={handleChange}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Cost</label>
+                        <input type="text" name="cost" placeholder="Ex: Free / Paid / Freemium" value={formData.cost} onChange={handleChange}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Latency</label>
+                        <input type="text" name="latency" placeholder="Ex: Low / Medium / High" value={formData.latency} onChange={handleChange}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Scalability</label>
+                        <input type="text" name="scalability" placeholder="Ex: High" value={formData.scalability} onChange={handleChange}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">Design Pattern</label>
+                        <input type="text" name="design_pattern" placeholder="Ex: REST, Event-Driven" value={formData.design_pattern} onChange={handleChange}
+                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                      </div>
+                    </div>
+
+                    {/* Sample code with generate button — works for both Add and Edit modes */}
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <label className="text-sm font-semibold text-slate-700">Sample Code</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // If editing and sample code already exists, confirm before overwriting
+                            if (editId && formData.sample_code) {
+                              if (!window.confirm("This will replace the existing sample code with a template. Continue?")) return;
+                            }
+                            handleGenerateCode();
+                          }}
+                          className="rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-200"
+                          title={`Generate a ${formData.programming_language || "code"} snippet from template`}
+                        >
+                          ✨ {editId ? "Regenerate from Template" : "Generate from Template"}
+                        </button>
+                      </div>
+                      <textarea
+                        name="sample_code"
+                        placeholder={editId ? "Edit sample code, or click Regenerate to replace with a fresh template..." : "Paste sample usage code here, or click Generate..."}
+                        value={formData.sample_code}
+                        onChange={handleChange}
+                        rows={5}
+                        className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">
+                        Language: <strong>{formData.programming_language || "unknown"}</strong> — template auto-matches.
+                        {editId && !formData.sample_code && (
+                          <span className="ml-2 text-amber-500 font-semibold">⚠ No sample code yet — click Regenerate to add one.</span>
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button type="submit" disabled={submitting}
+                        className="rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-md transition hover:bg-blue-700 disabled:opacity-70">
+                        {submitting ? (editId ? "Updating..." : "Adding...") : editId ? "Update API" : "Add API"}
+                      </button>
+                      <button type="button" onClick={resetForm}
+                        className="rounded-2xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100">
+                        Clear
+                      </button>
+                      {editId && (
+                        <button type="button" onClick={resetForm}
+                          className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3 font-semibold text-amber-700 transition hover:bg-amber-100">
+                          Cancel Edit
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              {/* ── Search + API cards ── */}
+              <div className="lg:col-span-2">
+                <div className="mb-6 rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-lg">
+                  <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900">Search & Filter</h2>
+                      <p className="mt-1 text-sm text-slate-500">Find APIs by keyword or narrow them by category.</p>
+                    </div>
+                    <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 self-start xl:self-auto">
+                      {filteredApis.length} result{filteredApis.length !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-[1.6fr_1fr_auto]">
+                    <input type="text" placeholder="Fuzzy search — try typos like 'Stipe' for Stripe, 'pythn' for Python..."
+                      value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
+                    <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition">
+                      <option value="All">All Categories</option>
+                      {categories.filter((c) => c !== "All").map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <button type="button" onClick={() => { setSearchTerm(""); setSelectedCategory("All"); }}
+                      className="rounded-2xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100">
+                      Reset
                     </button>
-                  )}
-                </div>
-              </form>
-            </div>
-          </div>
-
-          {/* Right: API List */}
-          <div className="lg:col-span-2">
-            <div className="mb-6 rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-lg">
-              <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Search & Filter</h2>
-                  <p className="mt-1 text-sm text-slate-500">Find APIs by keyword or narrow them by category.</p>
-                </div>
-                <div className="flex items-center gap-3 self-start xl:self-auto">
-                  <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">
-                    {filteredApis.length} result{filteredApis.length !== 1 ? "s" : ""}
                   </div>
                 </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-[1.6fr_1fr_auto]">
-                <input type="text" placeholder="Search by name, category, language, framework, pattern, developer"
-                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition">
-                  <option value="All">All Categories</option>
-                  {categories.filter((cat) => cat !== "All").map((category) => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => { setSearchTerm(""); setSelectedCategory("All"); }}
-                  className="rounded-2xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100">
-                  Reset
-                </button>
-              </div>
-            </div>
 
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">Available APIs</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Browse and manage your saved API and microservice entries.{" "}
-                  <span className="font-medium text-blue-600">Check boxes to compare.</span>
-                </p>
-              </div>
-            </div>
+                <div className="mb-4">
+                  <h2 className="text-2xl font-bold text-slate-900">Available APIs</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Browse and manage entries. <span className="font-medium text-blue-600">Check boxes to compare.</span>
+                  </p>
+                </div>
 
-            {loading && (
-              <div className="grid gap-6 md:grid-cols-2">
-                {[1, 2, 3, 4].map((item) => (
-                  <div key={item} className="animate-pulse rounded-[28px] border border-slate-200 bg-white p-6 shadow-lg">
-                    <div className="mb-4 h-6 w-2/3 rounded bg-slate-200" />
-                    <div className="mb-5 h-5 w-24 rounded-full bg-slate-200" />
-                    <div className="space-y-3">
-                      <div className="h-4 w-full rounded bg-slate-200" />
-                      <div className="h-4 w-5/6 rounded bg-slate-200" />
-                      <div className="h-4 w-2/3 rounded bg-slate-200" />
-                    </div>
-                    <div className="mt-6 flex gap-3">
-                      <div className="h-10 w-20 rounded-xl bg-slate-200" />
-                      <div className="h-10 w-24 rounded-xl bg-slate-200" />
-                    </div>
+                {/* Loading skeleton */}
+                {loading && (
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {[1,2,3,4].map((i) => (
+                      <div key={i} className="animate-pulse rounded-[28px] border border-slate-200 bg-white p-6 shadow-lg">
+                        <div className="mb-4 h-6 w-2/3 rounded bg-slate-200" />
+                        <div className="space-y-3"><div className="h-4 w-full rounded bg-slate-200" /><div className="h-4 w-5/6 rounded bg-slate-200" /></div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+                )}
 
-            {!loading && filteredApis.length === 0 && (
-              <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center shadow-lg">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-2xl">🔎</div>
-                <h3 className="mt-4 text-xl font-semibold text-slate-800">No APIs found</h3>
-                <p className="mt-2 text-slate-500">Try a different search term or add a new API entry.</p>
-              </div>
-            )}
+                {/* Empty state */}
+                {!loading && filteredApis.length === 0 && (
+                  <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center shadow-lg">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-2xl">🔎</div>
+                    <h3 className="mt-4 text-xl font-semibold text-slate-800">No APIs found</h3>
+                    <p className="mt-2 text-slate-500">Try a different search term or add a new entry.</p>
+                  </div>
+                )}
 
-            {!loading && filteredApis.length > 0 && (
-              <div className="grid gap-6 md:grid-cols-2">
-                {filteredApis.map((api) => {
-                  const isSelected = compareIds.includes(api.id);
-                  const isDisabled = !isSelected && compareIds.length >= 4;
-
-                  return (
-                    <div key={api.id}
-                      className="group rounded-[28px] border bg-white p-6 shadow-lg transition duration-300 hover:-translate-y-1 hover:shadow-2xl"
-                      style={{
-                        borderColor: isSelected ? "#3b82f6" : "#e2e8f0",
-                        boxShadow: isSelected ? "0 0 0 3px rgba(59,130,246,0.15), 0 10px 30px rgba(0,0,0,0.08)" : undefined,
-                      }}
-                    >
-                      <div className="mb-5 flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-3 mb-1">
+                {/* API cards */}
+                {!loading && filteredApis.length > 0 && (
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {filteredApis.map((api) => {
+                      const isSelected = compareIds.includes(api.id);
+                      const isDisabled = !isSelected && compareIds.length >= 4;
+                      return (
+                        <div key={api.id}
+                          className="group rounded-[28px] border bg-white p-6 shadow-lg transition duration-300 hover:-translate-y-1 hover:shadow-2xl"
+                          style={{ borderColor: isSelected ? "#3b82f6" : "#e2e8f0", boxShadow: isSelected ? "0 0 0 3px rgba(59,130,246,0.15), 0 10px 30px rgba(0,0,0,0.08)" : undefined }}>
+                          <div className="mb-5">
                             {/* Compare checkbox */}
-                            <label
-                              className="flex items-center gap-2 cursor-pointer select-none"
-                              title={isDisabled ? "Maximum 4 APIs can be compared" : isSelected ? "Remove from comparison" : "Add to comparison"}
-                            >
-                              <div
-                                onClick={() => !isDisabled && toggleCompare(api.id)}
+                            <div className="mb-2 flex items-center gap-3">
+                              <div onClick={() => !isDisabled && toggleCompare(api.id)}
                                 className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2 transition-all"
-                                style={{
-                                  borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#94a3b8",
-                                  background: isSelected ? "#3b82f6" : "white",
-                                  cursor: isDisabled ? "not-allowed" : "pointer",
-                                  opacity: isDisabled ? 0.4 : 1,
-                                }}
-                              >
-                                {isSelected && (
-                                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                                    <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                )}
+                                style={{ borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#94a3b8", background: isSelected ? "#3b82f6" : "white", cursor: isDisabled ? "not-allowed" : "pointer", opacity: isDisabled ? 0.4 : 1 }}>
+                                {isSelected && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                               </div>
                               <span className="text-xs font-medium" style={{ color: isSelected ? "#3b82f6" : "#94a3b8" }}>
-                                {isSelected ? "Selected" : "Compare"}
+                                {isSelected ? "Selected for compare" : "Compare"}
                               </span>
-                            </label>
-                          </div>
-                          <h3 className="truncate text-xl font-bold text-slate-900">{api.name}</h3>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">{api.category}</span>
-                            <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{api.version}</span>
-                            <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${getRiskBadgeClass(api.risk_level)}`}>
-                              {api.risk_level || "Medium"} Risk
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4 text-sm text-slate-700">
-                        <div>
-                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Description</p>
-                          <p className="leading-6 text-slate-700">{api.description}</p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Developer</p>
-                            <p className="font-medium text-slate-900">{api.developer || "N/A"}</p>
-                          </div>
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Language</p>
-                            <p className="font-medium text-slate-900">{api.programming_language || "N/A"}</p>
-                          </div>
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Framework</p>
-                            <p className="font-medium text-slate-900">{api.framework || "N/A"}</p>
-                          </div>
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Cost</p>
-                            <p className="font-medium text-slate-900">{api.cost || "N/A"}</p>
-                          </div>
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Latency</p>
-                            <p className="font-medium text-slate-900">{api.latency || "N/A"}</p>
-                          </div>
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Scalability</p>
-                            <p className="font-medium text-slate-900">{api.scalability || "N/A"}</p>
-                          </div>
-                          <div className="col-span-2">
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Design Pattern</p>
-                            <p className="font-medium text-slate-900">{api.design_pattern || "N/A"}</p>
-                          </div>
-                          {api.sample_code && (
-                            <div className="col-span-2">
-                              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sample Code</p>
-                              <pre className="overflow-x-auto rounded-2xl bg-slate-900 p-3 text-xs text-slate-100">{api.sample_code}</pre>
                             </div>
-                          )}
+                            <h3 className="truncate text-xl font-bold text-slate-900">{api.name}</h3>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">{api.category}</span>
+                              <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{api.version}</span>
+                              <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${getRiskBadgeClass(api.risk_level)}`}>{api.risk_level || "Medium"} Risk</span>
+                            </div>
+                          </div>
+                          <div className="space-y-4 text-sm text-slate-700">
+                            <div>
+                              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Description</p>
+                              <p className="leading-6">{api.description}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              {[["Developer", api.developer],["Language", api.programming_language],["Framework", api.framework],["Cost", api.cost],["Latency", api.latency],["Scalability", api.scalability]].map(([label, val]) => (
+                                <div key={label}>
+                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                                  <p className="font-medium text-slate-900">{val || "N/A"}</p>
+                                </div>
+                              ))}
+                              <div className="col-span-2">
+                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Design Pattern</p>
+                                <p className="font-medium text-slate-900">{api.design_pattern || "N/A"}</p>
+                              </div>
+                              {api.sample_code && (
+                                <div className="col-span-2">
+                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sample Code</p>
+                                  <pre className="overflow-x-auto rounded-2xl bg-slate-900 p-3 text-xs text-slate-100">{api.sample_code}</pre>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-6 flex gap-3">
+                            <button onClick={() => handleEdit(api)} className="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600">Edit</button>
+                            <button onClick={() => handleDelete(api.id)} className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600">Delete</button>
+                          </div>
                         </div>
-                      </div>
-
-                      <div className="mt-6 flex gap-3">
-                        <button onClick={() => handleEdit(api)}
-                          className="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600">
-                          Edit
-                        </button>
-                        <button onClick={() => handleDelete(api.id)}
-                          className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600">
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Compare Modal */}
+      {/* Compare modal */}
       {showCompare && compareApis.length >= 2 && (
         <CompareModal apis={compareApis} onClose={() => setShowCompare(false)} />
+      )}
+
+      {/* Review modal — shown after GitHub fetch */}
+      {showReview && (
+        <ReviewModal
+          formData={formData}
+          onUpdate={handleReviewUpdate}
+          onGenerateCode={handleGenerateCode}
+          onConfirm={handleReviewConfirm}
+          onCancel={() => setShowReview(false)}
+        />
       )}
     </div>
   );
