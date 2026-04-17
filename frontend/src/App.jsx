@@ -1291,9 +1291,10 @@ function App() {
         {/* Directory tab */}
         {activeTab === "directory" && (
           <>
-            {/* Compare toolbar */}
+            {/* Compare toolbar — sticky so Compare Now button is always visible while scrolling */}
             {compareIds.length > 0 && (
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-blue-200 bg-blue-50/95 px-5 py-4 shadow-md backdrop-blur"
+                style={{ position: "sticky", top: 8, zIndex: 100 }}>
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white">{compareIds.length} selected</span>
                   <span className={`text-sm font-medium ${compareIds.length >= 4 ? "text-red-600 font-bold" : "text-blue-800"}`}>
