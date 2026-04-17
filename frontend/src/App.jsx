@@ -923,12 +923,16 @@ function App() {
   // Compare state
   const [compareIds, setCompareIds] = useState([]);
   const [showCompare, setShowCompare] = useState(false);
-  const [showCompareLimit, setShowCompareLimit] = useState(false); 
-  const [sortBy, setSortBy] = useState("default");   
-  const [copiedId, setCopiedId] = useState(null);    
+  const [showCompareLimit, setShowCompareLimit] = useState(false); // toast shown when user tries to select a 5th API
+  const [sortBy, setSortBy] = useState("default");   // sort order for API cards
+  const [copiedId, setCopiedId] = useState(null);     // id of card whose link was just copied
+  const [currentPage, setCurrentPage] = useState(1);  // current pagination page
+  const ITEMS_PER_PAGE = 12;                           // cards shown per page
 
   // Review modal state — shown after GitHub fetch
   const [showReview, setShowReview] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);  // slide-in form drawer
+  const [expandedId, setExpandedId] = useState(null);   // expanded card id for details toggle
 
   // Form fields (controlled inputs)
   const [formData, setFormData] = useState({
@@ -976,6 +980,7 @@ function App() {
     });
     setGithubRepo("");
     setEditId(null);
+    setShowDrawer(false);
   };
 
   /** Generate sample code from template and inject into formData */
@@ -1109,7 +1114,7 @@ function App() {
     });
     setEditId(api.id);
     setSuccessMessage(""); setError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setShowDrawer(true);   // open the slide-in drawer instead of scrolling
     setActiveTab("directory");
   };
 
@@ -1201,6 +1206,16 @@ function App() {
     return list; // "default" = original DB order
   }, [filteredApis, sortBy]);
 
+  // Reset to page 1 whenever search, category or sort changes
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, selectedCategory, sortBy]);
+
+  // Paginate the sorted+filtered list
+  const totalPages = Math.ceil(sortedFilteredApis.length / ITEMS_PER_PAGE);
+  const paginatedApis = sortedFilteredApis.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
   const totalApis = apis.length;
   const totalCategories = Math.max(categories.length - 1, 0);
   const uniqueDevelopers = new Set(apis.map((api) => api.developer?.trim()).filter(Boolean)).size;
@@ -1281,10 +1296,10 @@ function App() {
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white">{compareIds.length} selected</span>
-                  <span className="text-sm font-medium text-blue-800">
+                  <span className={`text-sm font-medium ${compareIds.length >= 4 ? "text-red-600 font-bold" : "text-blue-800"}`}>
                     {compareIds.length < 2 ? `Select ${2 - compareIds.length} more to compare`
                       : compareIds.length < 4 ? `Ready — or add up to ${4 - compareIds.length} more`
-                      : "Maximum 4 APIs selected"}
+                      : "⛔ Maximum 4 APIs selected — remove one to add another"}
                   </span>
                   <div className="flex flex-wrap gap-2">
                     {compareApis.map((a) => (
@@ -1310,388 +1325,354 @@ function App() {
               </div>
             )}
 
-            <div className="grid gap-8 lg:grid-cols-3">
-              {/* ── Add / Edit form ── */}
-              <div className="lg:col-span-1">
-                <div className="sticky top-6 rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-lg">
-                  <div className="mb-6 flex items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-900">{editId ? "Edit API Entry" : "Add New API"}</h2>
-                      <p className="mt-1 text-sm text-slate-500">Enter the API details below.</p>
-                    </div>
-                    {editId && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Editing</span>}
-                  </div>
+            {/* ── ADD API floating button ── */}
+            <div className="mb-4 flex justify-end">
+              <button
+                onClick={() => { resetForm(); setShowDrawer(true); }}
+                className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
+              >
+                + Add New API
+              </button>
+            </div>
 
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    {/* GitHub auto-fill */}
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">GitHub Repository</label>
-                      <div className="flex gap-3">
-                        <input type="text" placeholder="Ex: facebook/react" value={githubRepo}
-                          onChange={(e) => setGithubRepo(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleGithubFetch()}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                        <button type="button" onClick={handleGithubFetch} disabled={fetchingGithub}
-                          className="whitespace-nowrap rounded-2xl bg-indigo-600 px-5 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-70">
-                          {fetchingGithub ? "Fetching..." : "🔍 Fetch & Review"}
-                        </button>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">
-                        Enter a GitHub repo (owner/repo) — fetches available data then opens a review form to fill in the rest and generate sample code.
-                      </p>
-                    </div>
-
-                    {/* Required fields */}
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">API Name</label>
-                      <input type="text" name="name" placeholder="Ex: Stripe API" value={formData.name} onChange={handleChange} required
-                        className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Category</label>
-                      <input type="text" name="category" placeholder="Ex: Payments" value={formData.category} onChange={handleChange} required
-                        className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Description</label>
-                      <textarea name="description" placeholder="Write a short description..." value={formData.description} onChange={handleChange} required rows={4}
-                        className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Version</label>
-                        <input type="text" name="version" placeholder="Ex: v1.0.0" value={formData.version} onChange={handleChange} required
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Developer</label>
-                        <input type="text" name="developer" placeholder="Ex: Internal Team" value={formData.developer} onChange={handleChange} required
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Programming Language</label>
-                        <input type="text" name="programming_language" placeholder="Ex: JavaScript" value={formData.programming_language} onChange={handleChange}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Framework</label>
-                        <input type="text" name="framework" placeholder="Ex: REST, GraphQL" value={formData.framework} onChange={handleChange}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Cost</label>
-                        <input type="text" name="cost" placeholder="Ex: Free / Paid / Freemium" value={formData.cost} onChange={handleChange}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Latency</label>
-                        <input type="text" name="latency" placeholder="Ex: Low / Medium / High" value={formData.latency} onChange={handleChange}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Scalability</label>
-                        <input type="text" name="scalability" placeholder="Ex: High" value={formData.scalability} onChange={handleChange}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm font-semibold text-slate-700">Design Pattern</label>
-                        <input type="text" name="design_pattern" placeholder="Ex: REST, Event-Driven" value={formData.design_pattern} onChange={handleChange}
-                          className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                      </div>
-                    </div>
-
-                    {/* Sample code with generate button — works for both Add and Edit modes */}
-                    <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <label className="text-sm font-semibold text-slate-700">Sample Code</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // If editing and sample code already exists, confirm before overwriting
-                            if (editId && formData.sample_code) {
-                              if (!window.confirm("This will replace the existing sample code with a template. Continue?")) return;
-                            }
-                            handleGenerateCode();
-                          }}
-                          className="rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-200"
-                          title={`Generate a ${formData.programming_language || "code"} snippet from template`}
-                        >
-                          ✨ {editId ? "Regenerate from Template" : "Generate from Template"}
-                        </button>
-                      </div>
-                      <textarea
-                        name="sample_code"
-                        placeholder={editId ? "Edit sample code, or click Regenerate to replace with a fresh template..." : "Paste sample usage code here, or click Generate..."}
-                        value={formData.sample_code}
-                        onChange={handleChange}
-                        rows={5}
-                        className="w-full resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                      />
-                      <p className="mt-1 text-xs text-slate-400">
-                        Language: <strong>{formData.programming_language || "unknown"}</strong> — template auto-matches.
-                        {editId && !formData.sample_code && (
-                          <span className="ml-2 text-amber-500 font-semibold">⚠ No sample code yet — click Regenerate to add one.</span>
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-3 pt-2">
-                      <button type="submit" disabled={submitting}
-                        className="rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-md transition hover:bg-blue-700 disabled:opacity-70">
-                        {submitting ? (editId ? "Updating..." : "Adding...") : editId ? "Update API" : "Add API"}
-                      </button>
-                      <button type="button" onClick={resetForm}
-                        className="rounded-2xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100">
-                        Clear
-                      </button>
-                      {editId && (
-                        <button type="button" onClick={resetForm}
-                          className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3 font-semibold text-amber-700 transition hover:bg-amber-100">
-                          Cancel Edit
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                </div>
+            {/* ── Search & Filter ── */}
+            <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <input type="text"
+                  placeholder="Fuzzy search — try typos like 'Stipe', 'pythn'..."
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition">
+                  <option value="All">All Categories</option>
+                  {categories.filter((c) => c !== "All").map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition">
+                  <option value="default">Sort: Default</option>
+                  <option value="name-asc">Name A → Z</option>
+                  <option value="name-desc">Name Z → A</option>
+                  <option value="category">Category</option>
+                  <option value="developer">Developer</option>
+                  <option value="risk-low">Risk: Low first</option>
+                  <option value="risk-high">Risk: High first</option>
+                </select>
+                <button onClick={() => { setSearchTerm(""); setSelectedCategory("All"); setSortBy("default"); }}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-50">
+                  Reset
+                </button>
+                <button onClick={exportToCSV}
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100">
+                  ⬇ CSV
+                </button>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
+                  {sortedFilteredApis.length} result{sortedFilteredApis.length !== 1 ? "s" : ""}
+                </span>
               </div>
-
-              {/* ── Search + API cards ── */}
-              <div className="lg:col-span-2">
-                <div className="mb-6 rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-lg">
-                  <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-900">Search & Filter</h2>
-                      <p className="mt-1 text-sm text-slate-500">Find APIs by keyword or narrow them by category.</p>
-                    </div>
-                    <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 self-start xl:self-auto">
-                      {filteredApis.length} result{filteredApis.length !== 1 ? "s" : ""}
-                    </div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-[1.6fr_1fr_auto]">
-                    <input type="text" placeholder="Fuzzy search — try typos like 'Stipe' for Stripe, 'pythn' for Python..."
-                      value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
-                    <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition">
-                      <option value="All">All Categories</option>
-                      {categories.filter((c) => c !== "All").map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button type="button" onClick={() => { setSearchTerm(""); setSelectedCategory("All"); }}
-                      className="rounded-2xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100">
-                      Reset
-                    </button>
-                  </div>
-                  {/* Fuzzy search hint — shows example queries so users know typos are OK */}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-400">Try:</span>
-                    {["Stipe", "pythn", "paymnt", "mcroservice", "REST"].map((hint) => (
-                      <button
-                        key={hint}
-                        type="button"
-                        onClick={() => setSearchTerm(hint)}
-                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
-                      >
-                        {hint}
-                      </button>
-                    ))}
-                    <span className="text-xs text-slate-300">— fuzzy search handles typos automatically</span>
-                  </div>
-                </div>
-
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">Available APIs</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Browse and manage entries. <span className="font-medium text-blue-600">Check boxes to compare.</span>
-                    </p>
-                  </div>
-                  {/* Sort + Export controls */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Sort dropdown */}
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value)}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 outline-none transition hover:border-slate-300"
-                    >
-                      <option value="default">Sort: Default</option>
-                      <option value="name-asc">Name A → Z</option>
-                      <option value="name-desc">Name Z → A</option>
-                      <option value="category">Category</option>
-                      <option value="developer">Developer</option>
-                      <option value="risk-low">Risk: Low first</option>
-                      <option value="risk-high">Risk: High first</option>
-                    </select>
-                    {/* Export CSV button */}
-                    <button
-                      onClick={exportToCSV}
-                      className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
-                      title="Download currently filtered APIs as a CSV file"
-                    >
-                      ⬇ Export CSV
-                    </button>
-                  </div>
-                </div>
-
-                {/* Loading skeleton */}
-                {loading && (
-                  <div className="grid gap-6 md:grid-cols-2">
-                    {[1,2,3,4].map((i) => (
-                      <div key={i} className="animate-pulse rounded-[28px] border border-slate-200 bg-white p-6 shadow-lg">
-                        <div className="mb-4 h-6 w-2/3 rounded bg-slate-200" />
-                        <div className="space-y-3"><div className="h-4 w-full rounded bg-slate-200" /><div className="h-4 w-5/6 rounded bg-slate-200" /></div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Empty state */}
-                {!loading && sortedFilteredApis.length === 0 && (
-                  <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center shadow-lg">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-2xl">🔎</div>
-                    <h3 className="mt-4 text-xl font-semibold text-slate-800">No APIs found</h3>
-                    <p className="mt-2 text-slate-500">Try a different search term or add a new entry.</p>
-                  </div>
-                )}
-
-                {/* API cards */}
-                {!loading && sortedFilteredApis.length > 0 && (
-                  <div className="grid gap-6 md:grid-cols-2">
-                    {sortedFilteredApis.map((api) => {
-                      const isSelected = compareIds.includes(api.id);
-                      const isDisabled = !isSelected && compareIds.length >= 4;
-                      return (
-                        <div
-                          key={api.id}
-                          id={`api-${api.id}`}
-                          className="group rounded-[28px] border bg-white p-6 shadow-lg transition duration-300 hover:-translate-y-1 hover:shadow-2xl"
-                          style={{ borderColor: isSelected ? "#3b82f6" : "#e2e8f0", boxShadow: isSelected ? "0 0 0 3px rgba(59,130,246,0.15), 0 10px 30px rgba(0,0,0,0.08)" : undefined }}>
-                          <div className="mb-5">
-                            {/* Compare checkbox */}
-                            <div className="mb-2 flex items-center gap-3">
-                              <div onClick={() => !isDisabled && toggleCompare(api.id)}
-                                className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2 transition-all"
-                                style={{ borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#94a3b8", background: isSelected ? "#3b82f6" : "white", cursor: isDisabled ? "not-allowed" : "pointer", opacity: isDisabled ? 0.4 : 1 }}>
-                                {isSelected && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                              </div>
-                              <span className="text-xs font-medium" style={{ color: isSelected ? "#3b82f6" : "#94a3b8" }}>
-                                {isSelected ? "Selected for compare" : "Compare"}
-                              </span>
-                            </div>
-                            <h3 className="truncate text-xl font-bold text-slate-900">{api.name}</h3>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">{api.category}</span>
-                              <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{api.version}</span>
-                              <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${getRiskBadgeClass(api.risk_level)}`}>{api.risk_level || "Medium"} Risk</span>
-                            </div>
-                          </div>
-                          <div className="space-y-4 text-sm text-slate-700">
-                            <div>
-                              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Description</p>
-                              <p className="leading-6">{api.description}</p>
-                            </div>
-                            {/* Empty fields indicator — shows how many optional fields are missing */}
-                            {(() => {
-                              const optionalFields = [api.programming_language, api.framework, api.cost, api.latency, api.scalability, api.design_pattern, api.sample_code];
-                              const missingCount = optionalFields.filter((v) => !v || v === "Unknown" || v === "N/A").length;
-                              return missingCount > 0 ? (
-                                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
-                                  <span className="text-xs font-bold text-amber-600">⚠ {missingCount} field{missingCount !== 1 ? "s" : ""} missing</span>
-                                </div>
-                              ) : (
-                                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
-                                  <span className="text-xs font-bold text-emerald-600">✓ Complete</span>
-                                </div>
-                              );
-                            })()}
-                            <div className="grid grid-cols-2 gap-3">
-                              {[["Developer", api.developer],["Language", api.programming_language],["Framework", api.framework],["Cost", api.cost],["Latency", api.latency],["Scalability", api.scalability]].map(([label, val]) => {
-                                const isMissing = !val || val === "Unknown" || val === "N/A";
-                                return (
-                                  <div key={label}>
-                                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-                                    <p className={`font-medium ${isMissing ? "text-amber-400 italic" : "text-slate-900"}`}>{val || "Missing"}</p>
-                                  </div>
-                                );
-                              })}
-                              <div className="col-span-2">
-                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Design Pattern</p>
-                                <p className={`font-medium ${!api.design_pattern ? "text-amber-400 italic" : "text-slate-900"}`}>{api.design_pattern || "Missing"}</p>
-                              </div>
-                              {api.sample_code && (
-                                <div className="col-span-2">
-                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sample Code</p>
-                                  <pre className="overflow-x-auto rounded-2xl bg-slate-900 p-3 text-xs text-slate-100">{api.sample_code}</pre>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="mt-6 flex flex-wrap gap-2">
-                            <button onClick={() => handleEdit(api)} className="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600">Edit</button>
-                            <button onClick={() => handleDelete(api.id)} className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600">Delete</button>
-                            {/* Share button — copies a deep link to this card */}
-                            <button
-                              onClick={() => copyShareLink(api.id)}
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
-                              title="Copy shareable link to this API card"
-                            >
-                              {copiedId === api.id ? "✓ Copied!" : "🔗 Share"}
-                            </button>
-                            {/* Print button — opens browser print dialog for this card only */}
-                            <button
-                              onClick={() => {
-                                const el = document.getElementById(`api-${api.id}`);
-                                const win = window.open("", "_blank");
-                                win.document.write(`
-                                  <html><head><title>${api.name} — SLIB Finder</title>
-                                  <style>
-                                    body { font-family: system-ui, sans-serif; padding: 32px; color: #1e293b; }
-                                    h1 { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
-                                    .badge { display: inline-block; border-radius: 99px; padding: 3px 12px; font-size: 12px; font-weight: 700; margin-right: 6px; }
-                                    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; }
-                                    .field label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; font-weight: 700; display: block; margin-bottom: 4px; }
-                                    .field p { font-size: 14px; font-weight: 600; color: #1e293b; margin: 0; }
-                                    pre { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 12px; font-size: 12px; overflow-x: auto; }
-                                    @media print { body { padding: 16px; } }
-                                  </style></head><body>
-                                  <h1>${api.name}</h1>
-                                  <div>
-                                    <span class="badge" style="background:#dbeafe;color:#1d4ed8">${api.category}</span>
-                                    <span class="badge" style="background:#f1f5f9;color:#475569">${api.version}</span>
-                                    <span class="badge" style="background:${api.risk_level==="High"?"#fee2e2":"#d1fae5"};color:${api.risk_level==="High"?"#dc2626":"#059669"}">${api.risk_level||"Medium"} Risk</span>
-                                  </div>
-                                  <p style="margin-top:16px;color:#475569;line-height:1.6">${api.description}</p>
-                                  <div class="grid">
-                                    ${[["Developer",api.developer],["Language",api.programming_language],["Framework",api.framework],["Cost",api.cost],["Latency",api.latency],["Scalability",api.scalability],["Design Pattern",api.design_pattern]].map(([l,v])=>`<div class="field"><label>${l}</label><p>${v||"N/A"}</p></div>`).join("")}
-                                  </div>
-                                  ${api.sample_code ? `<p style="font-size:11px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.08em;margin-bottom:8px">Sample Code</p><pre>${api.sample_code.replace(/</g,"&lt;")}</pre>` : ""}
-                                  <p style="margin-top:24px;font-size:11px;color:#94a3b8">Generated by SLIB Finder — ${new Date().toLocaleDateString()}</p>
-                                  </body></html>
-                                `);
-                                win.document.close();
-                                win.print();
-                              }}
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
-                              title="Print or save this card as PDF"
-                            >
-                              🖨 Print
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+              {/* Fuzzy hint chips */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-slate-400">Try:</span>
+                {["Stipe","pythn","paymnt","mcroservice","REST"].map((hint) => (
+                  <button key={hint} onClick={() => setSearchTerm(hint)}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs text-slate-500 transition hover:border-blue-300 hover:text-blue-600">
+                    {hint}
+                  </button>
+                ))}
+                <span className="text-xs text-slate-300">— fuzzy search handles typos</span>
               </div>
             </div>
+
+            {/* ── Cards header ── */}
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800">Available APIs</h2>
+              <p className="text-xs text-slate-400">Check boxes to compare</p>
+            </div>
+
+            {/* Loading skeleton */}
+            {loading && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[1,2,3,4,5,6].map((i) => (
+                  <div key={i} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 h-5 w-2/3 rounded bg-slate-200" />
+                    <div className="mb-4 h-4 w-24 rounded-full bg-slate-200" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-full rounded bg-slate-200" />
+                      <div className="h-3 w-4/5 rounded bg-slate-200" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!loading && sortedFilteredApis.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-2xl">🔎</div>
+                <h3 className="mt-3 text-lg font-semibold text-slate-800">No APIs found</h3>
+                <p className="mt-1 text-sm text-slate-500">Try a different search term or add a new entry.</p>
+              </div>
+            )}
+
+            {/* ── Compact API cards — 3 col grid ── */}
+            {!loading && sortedFilteredApis.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {paginatedApis.map((api) => {
+                  const isSelected = compareIds.includes(api.id);
+                  const isDisabled = !isSelected && compareIds.length >= 4;
+                  const isExpanded = expandedId === api.id;
+                  const optionalFields = [api.programming_language, api.framework, api.cost, api.latency, api.scalability, api.design_pattern, api.sample_code];
+                  const missingCount = optionalFields.filter((v) => !v || v === "Unknown" || v === "N/A").length;
+
+                  return (
+                    <div key={api.id} id={`api-${api.id}`}
+                      className="rounded-2xl border bg-white shadow-sm transition duration-200 hover:shadow-md"
+                      style={{ borderColor: isSelected ? "#3b82f6" : "#e2e8f0", boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.2)" : undefined }}>
+
+                      {/* ── Card header ── */}
+                      <div className="p-4 pb-3">
+                        {/* Top row: compare checkbox + missing badge */}
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div onClick={() => !isDisabled && toggleCompare(api.id)}
+                              className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border-2 transition-all"
+                              style={{ borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#94a3b8", background: isSelected ? "#3b82f6" : "white", cursor: isDisabled ? "not-allowed" : "pointer", opacity: isDisabled ? 0.4 : 1 }}>
+                              {isSelected && <svg width="8" height="6" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </div>
+                            <span className="text-xs" style={{ color: isSelected ? "#3b82f6" : "#94a3b8" }}>
+                              {isSelected ? "Selected" : "Compare"}
+                            </span>
+                          </div>
+                          {missingCount > 0
+                            ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-600">⚠ {missingCount} missing</span>
+                            : <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-600">✓ Complete</span>
+                          }
+                        </div>
+
+                        {/* Name */}
+                        <h3 className="truncate text-base font-bold text-slate-900">{api.name}</h3>
+
+                        {/* Badges */}
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">{api.category}</span>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{api.version}</span>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getRiskBadgeClass(api.risk_level)}`}>{api.risk_level || "Medium"} Risk</span>
+                        </div>
+
+                        {/* Description — 2 lines truncated */}
+                        <p className="mt-2 text-xs leading-5 text-slate-500 line-clamp-2">{api.description}</p>
+
+                        {/* Key fields row */}
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                          {[["Dev", api.developer], ["Lang", api.programming_language], ["Cost", api.cost]].map(([label, val]) => (
+                            <span key={label} className="text-xs text-slate-500">
+                              <span className="font-semibold text-slate-400">{label}:</span>{" "}
+                              <span className={val && val !== "Unknown" ? "text-slate-700" : "text-amber-400 italic"}>{val || "—"}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* ── Expandable details ── */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 px-4 py-3">
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                            {[["Framework", api.framework],["Latency", api.latency],["Scalability", api.scalability],["Design Pattern", api.design_pattern]].map(([label, val]) => (
+                              <div key={label}>
+                                <p className="font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+                                <p className={val && val !== "Unknown" ? "font-medium text-slate-800" : "italic text-amber-400"}>{val || "Missing"}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {api.sample_code && (
+                            <div className="mt-3">
+                              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Sample Code</p>
+                              <pre className="overflow-x-auto rounded-xl bg-slate-900 p-3 text-xs text-slate-100 max-h-32">{api.sample_code}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── Card actions ── */}
+                      <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
+                        <button
+                          onClick={() => setExpandedId(isExpanded ? null : api.id)}
+                          className="text-xs font-semibold text-blue-500 transition hover:text-blue-700"
+                        >
+                          {isExpanded ? "▲ Less" : "▼ Details"}
+                        </button>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => handleEdit(api)} className="rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-600">Edit</button>
+                          <button onClick={() => handleDelete(api.id)} className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-600">Delete</button>
+                          <button onClick={() => copyShareLink(api.id)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+                            {copiedId === api.id ? "✓" : "🔗"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const win = window.open("", "_blank");
+                              win.document.write(`<html><head><title>${api.name} — SLIB Finder</title><style>body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b}h1{font-size:22px;font-weight:800;margin-bottom:4px}.badge{display:inline-block;border-radius:99px;padding:3px 12px;font-size:12px;font-weight:700;margin-right:6px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}.field label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;font-weight:700;display:block;margin-bottom:4px}.field p{font-size:14px;font-weight:600;color:#1e293b;margin:0}pre{background:#0f172a;color:#e2e8f0;padding:16px;border-radius:12px;font-size:12px;overflow-x:auto}</style></head><body><h1>${api.name}</h1><div><span class="badge" style="background:#dbeafe;color:#1d4ed8">${api.category}</span><span class="badge" style="background:#f1f5f9;color:#475569">${api.version}</span></div><p style="margin-top:12px;color:#475569;line-height:1.6;font-size:14px">${api.description}</p><div class="grid">${[["Developer",api.developer],["Language",api.programming_language],["Framework",api.framework],["Cost",api.cost],["Latency",api.latency],["Scalability",api.scalability],["Design Pattern",api.design_pattern]].map(([l,v])=>`<div class="field"><label>${l}</label><p>${v||"N/A"}</p></div>`).join("")}</div>${api.sample_code?`<p style="font-size:11px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.08em;margin-bottom:8px">Sample Code</p><pre>${api.sample_code.replace(/</g,"&lt;")}</pre>`:""}<p style="margin-top:24px;font-size:11px;color:#94a3b8">SLIB Finder — ${new Date().toLocaleDateString()}</p></body></html>`);
+                              win.document.close(); win.print();
+                            }}
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+                            🖨
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-2 flex-wrap">
+                <button onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  disabled={currentPage === 1}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                  ← Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button key={page} onClick={() => { setCurrentPage(page); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                    className="rounded-xl border px-4 py-2 text-sm font-bold transition"
+                    style={{ background: currentPage === page ? "#3b82f6" : "white", color: currentPage === page ? "white" : "#64748b", borderColor: currentPage === page ? "#3b82f6" : "#e2e8f0" }}>
+                    {page}
+                  </button>
+                ))}
+                <button onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  disabled={currentPage === totalPages}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                  Next →
+                </button>
+                <span className="text-sm text-slate-400 ml-2">Page {currentPage} of {totalPages} · {sortedFilteredApis.length} total</span>
+              </div>
+            )}
           </>
         )}
       </div>
+
+      {/* ── Slide-in form drawer ── */}
+      {showDrawer && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500 }}>
+          {/* Backdrop */}
+          <div onClick={() => { if (!editId) resetForm(); else setShowDrawer(false); }}
+            style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,0.4)", backdropFilter: "blur(3px)" }} />
+          {/* Drawer panel */}
+          <div style={{
+            position: "absolute", top: 0, right: 0, bottom: 0, width: "100%", maxWidth: 480,
+            background: "#fff", boxShadow: "-8px 0 40px rgba(0,0,0,0.15)",
+            overflowY: "auto", display: "flex", flexDirection: "column",
+          }}>
+            {/* Drawer header */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#fff", zIndex: 10 }}>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 800, color: "#1e293b", margin: 0 }}>
+                  {editId ? "Edit API Entry" : "Add New API"}
+                </h2>
+                <p style={{ fontSize: 12, color: "#94a3b8", margin: "2px 0 0 0" }}>
+                  {editId ? "Update the fields below" : "Fill in the API details"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {editId && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Editing</span>}
+                <button onClick={() => { if (!editId) resetForm(); else setShowDrawer(false); }}
+                  style={{ background: "#f1f5f9", border: "none", borderRadius: 10, width: 32, height: 32, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}>
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Drawer form */}
+            <div style={{ padding: "20px 24px", flex: 1 }}>
+              <form onSubmit={(e) => { handleSubmit(e); }} className="space-y-4">
+                {/* GitHub fetch */}
+                <div>
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">GitHub Repository</label>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="Ex: facebook/react" value={githubRepo}
+                      onChange={(e) => setGithubRepo(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleGithubFetch()}
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                    <button type="button" onClick={handleGithubFetch} disabled={fetchingGithub}
+                      className="whitespace-nowrap rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-70">
+                      {fetchingGithub ? "..." : "🔍 Fetch"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">owner/repo format — opens review form</p>
+                </div>
+
+                {/* Required fields */}
+                {[
+                  { name: "name", label: "API Name", placeholder: "Ex: Stripe API", required: true },
+                  { name: "category", label: "Category", placeholder: "Ex: Payments", required: true },
+                ].map((f) => (
+                  <div key={f.name}>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-700">{f.label}</label>
+                    <input type="text" name={f.name} placeholder={f.placeholder} value={formData[f.name]} onChange={handleChange} required={f.required}
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                  </div>
+                ))}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Description</label>
+                  <textarea name="description" placeholder="Short description..." value={formData.description} onChange={handleChange} required rows={3}
+                    className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { name: "version", label: "Version", placeholder: "Ex: v1.0.0", required: true },
+                    { name: "developer", label: "Developer", placeholder: "Ex: Stripe", required: true },
+                    { name: "programming_language", label: "Language", placeholder: "Ex: JavaScript" },
+                    { name: "framework", label: "Framework", placeholder: "Ex: REST" },
+                    { name: "cost", label: "Cost", placeholder: "Ex: Free" },
+                    { name: "latency", label: "Latency", placeholder: "Ex: Low" },
+                    { name: "scalability", label: "Scalability", placeholder: "Ex: High" },
+                    { name: "design_pattern", label: "Design Pattern", placeholder: "Ex: REST" },
+                  ].map((f) => (
+                    <div key={f.name}>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-600">{f.label}</label>
+                      <input type="text" name={f.name} placeholder={f.placeholder} value={formData[f.name]} onChange={handleChange} required={f.required}
+                        className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Sample code */}
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className="text-sm font-semibold text-slate-700">Sample Code</label>
+                    <button type="button"
+                      onClick={() => {
+                        if (editId && formData.sample_code) {
+                          if (!window.confirm("Replace existing sample code with a template?")) return;
+                        }
+                        handleGenerateCode();
+                      }}
+                      className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700 transition hover:bg-indigo-200">
+                      ✨ {editId ? "Regenerate" : "Generate"}
+                    </button>
+                  </div>
+                  <textarea name="sample_code" placeholder="Paste code or click Generate..." value={formData.sample_code} onChange={handleChange} rows={5}
+                    className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 font-mono text-xs text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                  <p className="mt-1 text-xs text-slate-400">Language: <strong>{formData.programming_language || "unknown"}</strong></p>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2 pt-2">
+                  <button type="submit" disabled={submitting}
+                    className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-70">
+                    {submitting ? (editId ? "Updating..." : "Adding...") : editId ? "Update API" : "Add API"}
+                  </button>
+                  <button type="button" onClick={resetForm}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">
+                    {editId ? "Cancel" : "Clear"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Compare limit toast — shown briefly when user tries to select a 5th API */}
       {showCompareLimit && (
