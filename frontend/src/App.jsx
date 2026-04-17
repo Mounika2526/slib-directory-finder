@@ -923,9 +923,9 @@ function App() {
   // Compare state
   const [compareIds, setCompareIds] = useState([]);
   const [showCompare, setShowCompare] = useState(false);
-  const [showCompareLimit, setShowCompareLimit] = useState(false); // toast shown when user tries to select a 5th API
-  const [sortBy, setSortBy] = useState("default");   // sort order for API cards
-  const [copiedId, setCopiedId] = useState(null);     // id of card whose link was just copied
+  const [showCompareLimit, setShowCompareLimit] = useState(false); 
+  const [sortBy, setSortBy] = useState("default");   
+  const [copiedId, setCopiedId] = useState(null);    
 
   // Review modal state — shown after GitHub fetch
   const [showReview, setShowReview] = useState(false);
