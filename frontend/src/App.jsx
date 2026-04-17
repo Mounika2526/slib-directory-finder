@@ -1426,7 +1426,42 @@ function App() {
                   return (
                     <div key={api.id} id={`api-${api.id}`}
                       className="rounded-2xl border bg-white shadow-sm transition duration-200 hover:shadow-md"
-                      style={{ borderColor: isSelected ? "#3b82f6" : "#e2e8f0", boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.2)" : undefined }}>
+                      style={{
+                        borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#e2e8f0",
+                        boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.2)" : undefined,
+                        position: "relative",
+                        opacity: isDisabled ? 0.6 : 1,
+                      }}>
+
+                      {/* ── Disabled overlay — shown when 4 APIs already selected ── */}
+                      {isDisabled && (
+                        <div style={{
+                          position: "absolute", inset: 0, zIndex: 10,
+                          borderRadius: 16,
+                          background: "rgba(248,250,252,0.85)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          backdropFilter: "blur(1px)",
+                          cursor: "not-allowed",
+                        }}
+                          onClick={() => {
+                            setShowCompareLimit(true);
+                            setTimeout(() => setShowCompareLimit(false), 3000);
+                          }}
+                        >
+                          <div style={{
+                            background: "#fff", border: "2px solid #fca5a5",
+                            borderRadius: 12, padding: "10px 18px",
+                            display: "flex", alignItems: "center", gap: 8,
+                            boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+                          }}>
+                            <span style={{ fontSize: 18 }}>⛔</span>
+                            <div>
+                              <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#dc2626" }}>Max 4 selected</p>
+                              <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>Remove one to add this</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* ── Card header ── */}
                       <div className="p-4 pb-3">
@@ -1435,7 +1470,7 @@ function App() {
                           <div className="flex items-center gap-2">
                             <div onClick={() => !isDisabled && toggleCompare(api.id)}
                               className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border-2 transition-all"
-                              style={{ borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#94a3b8", background: isSelected ? "#3b82f6" : "white", cursor: isDisabled ? "not-allowed" : "pointer", opacity: isDisabled ? 0.4 : 1 }}>
+                              style={{ borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#94a3b8", background: isSelected ? "#3b82f6" : "white", cursor: isDisabled ? "not-allowed" : "pointer" }}>
                               {isSelected && <svg width="8" height="6" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                             </div>
                             <span className="text-xs" style={{ color: isSelected ? "#3b82f6" : "#94a3b8" }}>
