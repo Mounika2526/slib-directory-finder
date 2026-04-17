@@ -584,9 +584,19 @@ with app.app_context():
 
 
 # ─────────────────────────────────────────────
-# ENTRY POINT
-# Only runs when executing this file directly (not via gunicorn/wsgi)
+# ONE-TIME AUTO SEED
+# Imports the seed function from seed_apis.py and runs it.
+# The seed function checks if data already exists — if yes,
+# it skips immediately. Runs once on first deploy, never again.
 # ─────────────────────────────────────────────
+
+with app.app_context():
+    try:
+        from seed_apis import seed
+        seed()
+    except Exception as e:
+        print(f"[SEED] Skipped: {e}")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001)

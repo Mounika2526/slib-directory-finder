@@ -603,54 +603,71 @@ SEED_DATA = [
 
 
 def seed():
-    """Insert all seed entries, skipping duplicates."""
-    with app.app_context():
-        db.create_all()
+    """
+    Insert all seed entries into the database.
 
-        inserted = 0
-        skipped = 0
+    Called automatically by app.py on startup.
+    Uses 'Stripe API' by 'stripe' as a sentinel —
+    if it already exists, the database has been seeded
+    and this function returns immediately without doing anything.
 
-        for row in SEED_DATA:
-            (name, category, description, version, developer,
-             language, framework, cost, latency, scalability,
-             design_pattern, risk_level, sample_code) = row
+    Safe to call from app.py on every deploy.
+    Safe to run manually: python seed_apis.py
+    """
+    # ── Sentinel check ───────────────────────────────────────────────────────
+    # If Stripe API already exists, we have already seeded — skip everything.
+    already_seeded = ApiEntry.query.filter_by(
+        name="Stripe API", developer="stripe"
+    ).first()
 
-            # Skip if already exists (same name + developer)
-            exists = ApiEntry.query.filter(
-                db.func.lower(ApiEntry.name) == name.lower(),
-                db.func.lower(ApiEntry.developer) == developer.lower()
-            ).first()
+    if already_seeded:
+        print("[SEED] Already seeded — skipping.")
+        return
 
-            if exists:
-                skipped += 1
-                continue
+    # ── Insert entries ────────────────────────────────────────────────────────
+    inserted = 0
+    skipped = 0
 
-            entry = ApiEntry(
-                name=name,
-                category=category,
-                description=description,
-                version=version,
-                developer=developer,
-                risk_level=risk_level,
-                programming_language=language,
-                framework=framework,
-                cost=cost,
-                latency=latency,
-                scalability=scalability,
-                design_pattern=design_pattern,
-                sample_code=sample_code,
-            )
-            db.session.add(entry)
-            inserted += 1
+    for row in SEED_DATA:
+        (name, category, description, version, developer,
+         language, framework, cost, latency, scalability,
+         design_pattern, risk_level, sample_code) = row
 
-        db.session.commit()
+        # Skip individual duplicates (handles partial seeds)
+        exists = ApiEntry.query.filter(
+            db.func.lower(ApiEntry.name) == name.lower(),
+            db.func.lower(ApiEntry.developer) == developer.lower()
+        ).first()
 
-        total = ApiEntry.query.count()
-        print(f"\n✅ Seed complete!")
-        print(f"   Inserted : {inserted}")
-        print(f"   Skipped  : {skipped} (already existed)")
-        print(f"   Total    : {total} entries in database\n")
+        if exists:
+            skipped += 1
+            continue
+
+        db.session.add(ApiEntry(
+            name=name,
+            category=category,
+            description=description,
+            version=version,
+            developer=developer,
+            risk_level=risk_level,
+            programming_language=language,
+            framework=framework,
+            cost=cost,
+            latency=latency,
+            scalability=scalability,
+            design_pattern=design_pattern,
+            sample_code=sample_code,
+        ))
+        inserted += 1
+
+    db.session.commit()
+
+    total = ApiEntry.query.count()
+    print(f"[SEED] Done! Inserted {inserted}, skipped {skipped}, total {total} entries.")
 
 
 if __name__ == "__main__":
-    seed()
+    # When run directly (python seed_apis.py), wrap in app context
+    with app.app_context():
+        db.create_all()
+        seed()
