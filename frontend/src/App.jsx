@@ -923,6 +923,9 @@ function App() {
   // Compare state
   const [compareIds, setCompareIds] = useState([]);
   const [showCompare, setShowCompare] = useState(false);
+  const [showCompareLimit, setShowCompareLimit] = useState(false); // toast shown when user tries to select a 5th API
+  const [sortBy, setSortBy] = useState("default");   // sort order for API cards
+  const [copiedId, setCopiedId] = useState(null);     // id of card whose link was just copied
 
   // Review modal state — shown after GitHub fetch
   const [showReview, setShowReview] = useState(false);
@@ -1116,8 +1119,54 @@ function App() {
   const toggleCompare = (id) => {
     setCompareIds((prev) => {
       if (prev.includes(id)) return prev.filter((cid) => cid !== id);
-      if (prev.length >= 4) return prev;
+      if (prev.length >= 4) {
+        // Show a brief toast explaining the 4-item limit
+        setShowCompareLimit(true);
+        setTimeout(() => setShowCompareLimit(false), 2500);
+        return prev;
+      }
       return [...prev, id];
+    });
+  };
+
+  // ── Export to CSV ────────────────────────────
+  /**
+   * exportToCSV
+   * Converts the currently filtered API list to a CSV file and triggers a download.
+   * Uses the browser's Blob + anchor click pattern — no library needed.
+   */
+  const exportToCSV = () => {
+    const headers = ["Name","Category","Version","Developer","Language","Framework","Cost","Latency","Scalability","Design Pattern","Risk Level","Description","Sample Code"];
+    const rows = filteredApis.map((api) => [
+      api.name, api.category, api.version, api.developer,
+      api.programming_language, api.framework, api.cost,
+      api.latency, api.scalability, api.design_pattern,
+      api.risk_level, api.description,
+      (api.sample_code || "").replace(/\n/g, " "),
+    ].map((v) => `"${(v || "").replace(/"/g, '""')}"`));
+
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `slib-directory-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Shareable card link ───────────────────────
+  /**
+   * copyShareLink
+   * Copies a deep-link URL for a specific API card to the clipboard.
+   * Uses the api id as a hash so the link is bookmarkable.
+   * Shows a brief "Copied!" confirmation on the card.
+   */
+  const copyShareLink = (id) => {
+    const url = `${window.location.origin}${window.location.pathname}#api-${id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
     });
   };
 
@@ -1139,6 +1188,18 @@ function App() {
       return matchesSearch && matchesCategory;
     });
   }, [apis, searchTerm, selectedCategory]);
+
+  // Sort the filtered list based on the current sortBy selection
+  const sortedFilteredApis = useMemo(() => {
+    const list = [...filteredApis];
+    if (sortBy === "name-asc")   return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    if (sortBy === "name-desc")  return list.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
+    if (sortBy === "risk-high")  return list.sort((a, b) => ["High","Medium","Low"].indexOf(a.risk_level) - ["High","Medium","Low"].indexOf(b.risk_level));
+    if (sortBy === "risk-low")   return list.sort((a, b) => ["Low","Medium","High"].indexOf(a.risk_level) - ["Low","Medium","High"].indexOf(b.risk_level));
+    if (sortBy === "category")   return list.sort((a, b) => (a.category || "").localeCompare(b.category || ""));
+    if (sortBy === "developer")  return list.sort((a, b) => (a.developer || "").localeCompare(b.developer || ""));
+    return list; // "default" = original DB order
+  }, [filteredApis, sortBy]);
 
   const totalApis = apis.length;
   const totalCategories = Math.max(categories.length - 1, 0);
@@ -1426,13 +1487,55 @@ function App() {
                       Reset
                     </button>
                   </div>
+                  {/* Fuzzy search hint — shows example queries so users know typos are OK */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-400">Try:</span>
+                    {["Stipe", "pythn", "paymnt", "mcroservice", "REST"].map((hint) => (
+                      <button
+                        key={hint}
+                        type="button"
+                        onClick={() => setSearchTerm(hint)}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                      >
+                        {hint}
+                      </button>
+                    ))}
+                    <span className="text-xs text-slate-300">— fuzzy search handles typos automatically</span>
+                  </div>
                 </div>
 
-                <div className="mb-4">
-                  <h2 className="text-2xl font-bold text-slate-900">Available APIs</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Browse and manage entries. <span className="font-medium text-blue-600">Check boxes to compare.</span>
-                  </p>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-900">Available APIs</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Browse and manage entries. <span className="font-medium text-blue-600">Check boxes to compare.</span>
+                    </p>
+                  </div>
+                  {/* Sort + Export controls */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Sort dropdown */}
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 outline-none transition hover:border-slate-300"
+                    >
+                      <option value="default">Sort: Default</option>
+                      <option value="name-asc">Name A → Z</option>
+                      <option value="name-desc">Name Z → A</option>
+                      <option value="category">Category</option>
+                      <option value="developer">Developer</option>
+                      <option value="risk-low">Risk: Low first</option>
+                      <option value="risk-high">Risk: High first</option>
+                    </select>
+                    {/* Export CSV button */}
+                    <button
+                      onClick={exportToCSV}
+                      className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
+                      title="Download currently filtered APIs as a CSV file"
+                    >
+                      ⬇ Export CSV
+                    </button>
+                  </div>
                 </div>
 
                 {/* Loading skeleton */}
@@ -1448,7 +1551,7 @@ function App() {
                 )}
 
                 {/* Empty state */}
-                {!loading && filteredApis.length === 0 && (
+                {!loading && sortedFilteredApis.length === 0 && (
                   <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center shadow-lg">
                     <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-2xl">🔎</div>
                     <h3 className="mt-4 text-xl font-semibold text-slate-800">No APIs found</h3>
@@ -1457,13 +1560,15 @@ function App() {
                 )}
 
                 {/* API cards */}
-                {!loading && filteredApis.length > 0 && (
+                {!loading && sortedFilteredApis.length > 0 && (
                   <div className="grid gap-6 md:grid-cols-2">
-                    {filteredApis.map((api) => {
+                    {sortedFilteredApis.map((api) => {
                       const isSelected = compareIds.includes(api.id);
                       const isDisabled = !isSelected && compareIds.length >= 4;
                       return (
-                        <div key={api.id}
+                        <div
+                          key={api.id}
+                          id={`api-${api.id}`}
                           className="group rounded-[28px] border bg-white p-6 shadow-lg transition duration-300 hover:-translate-y-1 hover:shadow-2xl"
                           style={{ borderColor: isSelected ? "#3b82f6" : "#e2e8f0", boxShadow: isSelected ? "0 0 0 3px rgba(59,130,246,0.15), 0 10px 30px rgba(0,0,0,0.08)" : undefined }}>
                           <div className="mb-5">
@@ -1490,16 +1595,33 @@ function App() {
                               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Description</p>
                               <p className="leading-6">{api.description}</p>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                              {[["Developer", api.developer],["Language", api.programming_language],["Framework", api.framework],["Cost", api.cost],["Latency", api.latency],["Scalability", api.scalability]].map(([label, val]) => (
-                                <div key={label}>
-                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-                                  <p className="font-medium text-slate-900">{val || "N/A"}</p>
+                            {/* Empty fields indicator — shows how many optional fields are missing */}
+                            {(() => {
+                              const optionalFields = [api.programming_language, api.framework, api.cost, api.latency, api.scalability, api.design_pattern, api.sample_code];
+                              const missingCount = optionalFields.filter((v) => !v || v === "Unknown" || v === "N/A").length;
+                              return missingCount > 0 ? (
+                                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
+                                  <span className="text-xs font-bold text-amber-600">⚠ {missingCount} field{missingCount !== 1 ? "s" : ""} missing</span>
                                 </div>
-                              ))}
+                              ) : (
+                                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+                                  <span className="text-xs font-bold text-emerald-600">✓ Complete</span>
+                                </div>
+                              );
+                            })()}
+                            <div className="grid grid-cols-2 gap-3">
+                              {[["Developer", api.developer],["Language", api.programming_language],["Framework", api.framework],["Cost", api.cost],["Latency", api.latency],["Scalability", api.scalability]].map(([label, val]) => {
+                                const isMissing = !val || val === "Unknown" || val === "N/A";
+                                return (
+                                  <div key={label}>
+                                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                                    <p className={`font-medium ${isMissing ? "text-amber-400 italic" : "text-slate-900"}`}>{val || "Missing"}</p>
+                                  </div>
+                                );
+                              })}
                               <div className="col-span-2">
                                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Design Pattern</p>
-                                <p className="font-medium text-slate-900">{api.design_pattern || "N/A"}</p>
+                                <p className={`font-medium ${!api.design_pattern ? "text-amber-400 italic" : "text-slate-900"}`}>{api.design_pattern || "Missing"}</p>
                               </div>
                               {api.sample_code && (
                                 <div className="col-span-2">
@@ -1509,9 +1631,56 @@ function App() {
                               )}
                             </div>
                           </div>
-                          <div className="mt-6 flex gap-3">
+                          <div className="mt-6 flex flex-wrap gap-2">
                             <button onClick={() => handleEdit(api)} className="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600">Edit</button>
                             <button onClick={() => handleDelete(api.id)} className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600">Delete</button>
+                            {/* Share button — copies a deep link to this card */}
+                            <button
+                              onClick={() => copyShareLink(api.id)}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                              title="Copy shareable link to this API card"
+                            >
+                              {copiedId === api.id ? "✓ Copied!" : "🔗 Share"}
+                            </button>
+                            {/* Print button — opens browser print dialog for this card only */}
+                            <button
+                              onClick={() => {
+                                const el = document.getElementById(`api-${api.id}`);
+                                const win = window.open("", "_blank");
+                                win.document.write(`
+                                  <html><head><title>${api.name} — SLIB Finder</title>
+                                  <style>
+                                    body { font-family: system-ui, sans-serif; padding: 32px; color: #1e293b; }
+                                    h1 { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
+                                    .badge { display: inline-block; border-radius: 99px; padding: 3px 12px; font-size: 12px; font-weight: 700; margin-right: 6px; }
+                                    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; }
+                                    .field label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; font-weight: 700; display: block; margin-bottom: 4px; }
+                                    .field p { font-size: 14px; font-weight: 600; color: #1e293b; margin: 0; }
+                                    pre { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 12px; font-size: 12px; overflow-x: auto; }
+                                    @media print { body { padding: 16px; } }
+                                  </style></head><body>
+                                  <h1>${api.name}</h1>
+                                  <div>
+                                    <span class="badge" style="background:#dbeafe;color:#1d4ed8">${api.category}</span>
+                                    <span class="badge" style="background:#f1f5f9;color:#475569">${api.version}</span>
+                                    <span class="badge" style="background:${api.risk_level==="High"?"#fee2e2":"#d1fae5"};color:${api.risk_level==="High"?"#dc2626":"#059669"}">${api.risk_level||"Medium"} Risk</span>
+                                  </div>
+                                  <p style="margin-top:16px;color:#475569;line-height:1.6">${api.description}</p>
+                                  <div class="grid">
+                                    ${[["Developer",api.developer],["Language",api.programming_language],["Framework",api.framework],["Cost",api.cost],["Latency",api.latency],["Scalability",api.scalability],["Design Pattern",api.design_pattern]].map(([l,v])=>`<div class="field"><label>${l}</label><p>${v||"N/A"}</p></div>`).join("")}
+                                  </div>
+                                  ${api.sample_code ? `<p style="font-size:11px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.08em;margin-bottom:8px">Sample Code</p><pre>${api.sample_code.replace(/</g,"&lt;")}</pre>` : ""}
+                                  <p style="margin-top:24px;font-size:11px;color:#94a3b8">Generated by SLIB Finder — ${new Date().toLocaleDateString()}</p>
+                                  </body></html>
+                                `);
+                                win.document.close();
+                                win.print();
+                              }}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                              title="Print or save this card as PDF"
+                            >
+                              🖨 Print
+                            </button>
                           </div>
                         </div>
                       );
@@ -1523,6 +1692,22 @@ function App() {
           </>
         )}
       </div>
+
+      {/* Compare limit toast — shown briefly when user tries to select a 5th API */}
+      {showCompareLimit && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          zIndex: 2000, background: "#1e293b", color: "#fff",
+          borderRadius: 16, padding: "12px 20px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+          display: "flex", alignItems: "center", gap: 10,
+          fontSize: 14, fontWeight: 600, whiteSpace: "nowrap",
+          animation: "fadeIn 0.2s ease",
+        }}>
+          <span>⚠️</span>
+          <span>Maximum 4 APIs can be compared at once. Remove one to add another.</span>
+        </div>
+      )}
 
       {/* Compare modal */}
       {showCompare && compareApis.length >= 2 && (
