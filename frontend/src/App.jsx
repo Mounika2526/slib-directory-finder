@@ -1340,7 +1340,7 @@ function App() {
             <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <input type="text"
-                  placeholder="Fuzzy search — try typos like 'Stipe', 'pythn'..."
+                  placeholder="Search by name, category, language, framework..."
                   value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                   className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" />
                 <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}
@@ -1369,17 +1369,6 @@ function App() {
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
                   {sortedFilteredApis.length} result{sortedFilteredApis.length !== 1 ? "s" : ""}
                 </span>
-              </div>
-              {/* Fuzzy hint chips */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-slate-400">Try:</span>
-                {["Stipe","pythn","paymnt","mcroservice","REST"].map((hint) => (
-                  <button key={hint} onClick={() => setSearchTerm(hint)}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs text-slate-500 transition hover:border-blue-300 hover:text-blue-600">
-                    {hint}
-                  </button>
-                ))}
-                <span className="text-xs text-slate-300">— fuzzy search handles typos</span>
               </div>
             </div>
 
