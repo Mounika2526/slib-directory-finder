@@ -1677,16 +1677,27 @@ function App() {
       {/* Compare limit toast — shown briefly when user tries to select a 5th API */}
       {showCompareLimit && (
         <div style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-          zIndex: 2000, background: "#1e293b", color: "#fff",
-          borderRadius: 16, padding: "12px 20px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
-          display: "flex", alignItems: "center", gap: 10,
-          fontSize: 14, fontWeight: 600, whiteSpace: "nowrap",
-          animation: "fadeIn 0.2s ease",
+          position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)",
+          zIndex: 9999,
+          background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+          color: "#fff",
+          borderRadius: 20,
+          padding: "16px 28px",
+          boxShadow: "0 12px 48px rgba(220,38,38,0.45), 0 4px 16px rgba(0,0,0,0.3)",
+          display: "flex", alignItems: "center", gap: 12,
+          fontSize: 15, fontWeight: 700,
+          whiteSpace: "nowrap",
+          border: "2px solid rgba(255,255,255,0.2)",
+          minWidth: 360,
+          justifyContent: "center",
         }}>
-          <span>⚠️</span>
-          <span>Maximum 4 APIs can be compared at once. Remove one to add another.</span>
+          <span style={{ fontSize: 22 }}>⛔</span>
+          <div>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Maximum 4 APIs reached</p>
+            <p style={{ margin: "2px 0 0 0", fontSize: 12, fontWeight: 500, opacity: 0.85 }}>
+              Remove one from the toolbar above, then add another
+            </p>
+          </div>
         </div>
       )}
 
