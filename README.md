@@ -151,7 +151,6 @@ Output goes to the `dist/` folder and can be deployed to any static host (Vercel
 | Field | Detail |
 |-------|--------|
 | Student | Mounika Dasari |
-| Campus ID | JU70291 |
 | Course | SENG 701 – Software Engineering Capstone |
 | Institution | University of Maryland, Baltimore County (UMBC) |
 | Advisor | Professor Mohammad Samarah / Professor Melissa |
