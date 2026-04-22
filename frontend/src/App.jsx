@@ -1223,6 +1223,48 @@ function App() {
   // ── Render ───────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-8 md:px-6 lg:px-8">
+
+      {/* ── Render Free-Tier Wake-Up Banner ──
+          Shows while the backend is cold-starting on Render's free tier.
+          Disappears automatically once data has loaded (loading === false).
+          Uses CSS transition for a smooth slide-up dismiss. */}
+      <div style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 9999,
+        transform: loading ? "translateY(0)" : "translateY(-110%)",
+        transition: "transform 0.5s ease-in-out",
+        background: "linear-gradient(90deg, #1e3a5f 0%, #1d4ed8 100%)",
+        color: "#fff",
+        padding: "12px 20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 12,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+        fontSize: 14,
+        fontWeight: 500,
+        letterSpacing: "0.01em",
+      }}>
+        {/* Animated spinner */}
+        <svg
+          style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
+          width="18" height="18" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2.5"
+          strokeLinecap="round" strokeLinejoin="round"
+        >
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        <span>
+          ⏳ Backend is waking up on Render's free tier — this may take up to 30 seconds. 
+          &nbsp;<span style={{ opacity: 0.8, fontWeight: 400 }}>Thank you for your patience!</span>
+        </span>
+        {/* Inline keyframes for the spinner */}
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      </div>
+
       <div className="mx-auto max-w-7xl">
 
         {/* ── Page Header ── */}
