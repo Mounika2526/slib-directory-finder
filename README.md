@@ -9,7 +9,7 @@
 
 ## What is SLIB Finder?
 
-SLIB Finder helps software engineers, product owners, and developers discover and evaluate APIs and microservices from a centralized library. Instead of juggling spreadsheets or hunting across multiple tools, users can search, filter, compare, and analyze 138+ API entries — all in one place.
+SLIB Finder helps software engineers, product owners, and developers discover and evaluate APIs and microservices from a centralized library. Instead of juggling spreadsheets or hunting across multiple tools, users can search, filter, compare, and analyze 138 API entries — all in one place.
 
 ---
 
@@ -64,7 +64,7 @@ slib-directory-finder/
 
 ### Prerequisites
 
-- Python 3.x
+- Python 3.8+
 - Node.js 18+
 - npm
 
@@ -78,7 +78,7 @@ cd slib-directory-finder
 # Install Python dependencies
 pip install -r requirements.txt
 
-# Start the Flask backend (runs on port 5000 by default)
+# Start the Flask backend (runs on port 5001 by default)
 python app.py
 ```
 
@@ -92,7 +92,7 @@ npm install
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`. The frontend is configured to point to the production backend by default — update the `API_BASE` constant in `App.jsx` to `http://localhost:5000` when running locally.
+The app will be available at `http://localhost:5173`. The frontend is configured to point to the production backend by default — update the `API_BASE` constant in `App.jsx` to `http://localhost:5001` when running locally.
 
 ### Build for Production
 
@@ -141,7 +141,7 @@ Output goes to the `dist/` folder and can be deployed to any static host (Vercel
 ## Known Limitations
 
 - **Cold start delay:** The backend runs on Render's free tier and may take 20–30 seconds to respond after inactivity. A loading banner is shown in the UI during this time.
-- **No authentication:** All entries are publicly readable and editable. 
+- **No authentication:** All entries are publicly readable and editable.
 - **SQLite in development:** Local dev uses SQLite; production uses PostgreSQL on Render. Schema is compatible across both.
 
 ---
