@@ -11,7 +11,7 @@
  *  - Stats Dashboard: charts by category, developer, risk, language
  */
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 // ─────────────────────────────────────────────
 // BACKEND BASE URL — update if deployment changes
@@ -934,6 +934,13 @@ function App() {
   const [showDrawer, setShowDrawer] = useState(false);  // slide-in form drawer
   const [expandedId, setExpandedId] = useState(null);   // expanded card id for details toggle
 
+  // Drawer-scoped error — shown inline inside the drawer (e.g. duplicate entry)
+  const [drawerError, setDrawerError] = useState("");
+  const drawerErrorTimer = React.useRef(null);
+
+  // Success toast — shown at bottom of screen after a successful add/edit/delete
+  const [toast, setToast] = useState(null); // { message: string, type: "success" | "error" }
+
   // Form fields (controlled inputs)
   const [formData, setFormData] = useState({
     name: "", category: "", description: "", version: "", developer: "",
@@ -963,6 +970,14 @@ function App() {
     }
   }, [successMessage]);
 
+  // Auto-dismiss toast after 5 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   // ── Form handlers ────────────────────────────
 
   /** Update a single form field */
@@ -980,7 +995,15 @@ function App() {
     });
     setGithubRepo("");
     setEditId(null);
+    setDrawerError("");
     setShowDrawer(false);
+  };
+
+  /** Show an error inside the drawer with auto-dismiss after 5s */
+  const showDrawerError = (msg) => {
+    if (drawerErrorTimer.current) clearTimeout(drawerErrorTimer.current);
+    setDrawerError(msg);
+    drawerErrorTimer.current = setTimeout(() => setDrawerError(""), 5000);
   };
 
   /** Generate sample code from template and inject into formData */
@@ -992,18 +1015,22 @@ function App() {
   /** Submit form: POST (add) or PUT (edit) */
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(""); setSuccessMessage(""); setSubmitting(true);
+    setError(""); setSuccessMessage(""); setDrawerError(""); setSubmitting(true);
     try {
       const url = editId ? `${API_BASE}/api/apis/${editId}` : `${API_BASE}/api/apis`;
       const method = editId ? "PUT" : "POST";
 
-      // Client-side duplicate check
+      // Client-side duplicate check — show error inside drawer so user can see it
       if (!editId) {
         const alreadyExists = apis.some(
           (api) => api.name?.toLowerCase() === formData.name.toLowerCase() &&
                    api.developer?.toLowerCase() === formData.developer.toLowerCase()
         );
-        if (alreadyExists) { setError("This API entry already exists."); setSubmitting(false); return; }
+        if (alreadyExists) {
+          showDrawerError("An entry with this name and developer already exists.");
+          setSubmitting(false);
+          return;
+        }
       }
 
       const res = await fetch(url, {
@@ -1013,11 +1040,14 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || (editId ? "Failed to update API" : "Failed to add API"));
 
-      setSuccessMessage(editId ? "API updated successfully." : "API added successfully.");
+      // Success — close drawer and show bottom toast
+      const msg = editId ? "API updated successfully." : "API added successfully.";
       resetForm();
       fetchApis();
+      setToast({ message: msg, type: "success" });
     } catch (err) {
-      setError(err.message);
+      // Server-side error — show inside drawer
+      showDrawerError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -1028,8 +1058,8 @@ function App() {
    * then opens the ReviewModal for the user to fill missing fields.
    */
   const handleGithubFetch = async () => {
-    if (!githubRepo.trim()) { setError("Please enter a GitHub repository in owner/repo format."); return; }
-    setError(""); setSuccessMessage(""); setFetchingGithub(true);
+    if (!githubRepo.trim()) { showDrawerError("Please enter a GitHub repository in owner/repo format."); return; }
+    setError(""); setSuccessMessage(""); setDrawerError(""); setFetchingGithub(true);
     try {
       const res = await fetch(`${API_BASE}/api/github-fetch`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1037,6 +1067,18 @@ function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch GitHub repository data");
+
+      // ── Duplicate check BEFORE opening review modal ──
+      // No point making the user fill in the review form if the entry already exists.
+      const alreadyExists = apis.some(
+        (api) => api.name?.toLowerCase() === (data.name || "").toLowerCase() &&
+                 api.developer?.toLowerCase() === (data.developer || "").toLowerCase()
+      );
+      if (alreadyExists) {
+        showDrawerError(`"${data.name}" by ${data.developer} already exists in the directory.`);
+        setFetchingGithub(false);
+        return;
+      }
 
       // Pre-fill form with whatever GitHub gave us
       setFormData({
@@ -1049,9 +1091,8 @@ function App() {
 
       // Open review modal so user fills in the missing fields
       setShowReview(true);
-      setSuccessMessage("GitHub data fetched — please fill in the missing fields.");
     } catch (err) {
-      setError(err.message);
+      showDrawerError(err.message);
     } finally {
       setFetchingGithub(false);
     }
@@ -1063,13 +1104,17 @@ function App() {
    */
   const handleReviewConfirm = async () => {
     setShowReview(false);
-    setError(""); setSuccessMessage(""); setSubmitting(true);
+    setError(""); setSuccessMessage(""); setDrawerError(""); setSubmitting(true);
     try {
       const alreadyExists = apis.some(
         (api) => api.name?.toLowerCase() === formData.name.toLowerCase() &&
                  api.developer?.toLowerCase() === formData.developer.toLowerCase()
       );
-      if (alreadyExists) { setError("This API entry already exists."); setSubmitting(false); return; }
+      if (alreadyExists) {
+        showDrawerError("An entry with this name and developer already exists.");
+        setSubmitting(false);
+        return;
+      }
 
       const res = await fetch(`${API_BASE}/api/apis`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1078,11 +1123,11 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save API");
 
-      setSuccessMessage("API saved successfully.");
       resetForm();
       fetchApis();
+      setToast({ message: "API saved successfully.", type: "success" });
     } catch (err) {
-      setError(err.message);
+      showDrawerError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -1095,7 +1140,7 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/api/apis/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete API");
-      setSuccessMessage("API deleted successfully.");
+      setToast({ message: "API deleted successfully.", type: "success" });
       setCompareIds((prev) => prev.filter((cid) => cid !== id));
       fetchApis();
     } catch (err) {
@@ -1113,7 +1158,7 @@ function App() {
       design_pattern: api.design_pattern || "", sample_code: api.sample_code || "",
     });
     setEditId(api.id);
-    setSuccessMessage(""); setError("");
+    setSuccessMessage(""); setError(""); setDrawerError("");
     setShowDrawer(true);   // open the slide-in drawer instead of scrolling
     setActiveTab("directory");
   };
@@ -1223,48 +1268,6 @@ function App() {
   // ── Render ───────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-8 md:px-6 lg:px-8">
-
-      {/* ── Render Free-Tier Wake-Up Banner ──
-          Shows while the backend is cold-starting on Render's free tier.
-          Disappears automatically once data has loaded (loading === false).
-          Uses CSS transition for a smooth slide-up dismiss. */}
-      <div style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
-        transform: loading ? "translateY(0)" : "translateY(-110%)",
-        transition: "transform 0.5s ease-in-out",
-        background: "linear-gradient(90deg, #1e3a5f 0%, #1d4ed8 100%)",
-        color: "#fff",
-        padding: "12px 20px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 12,
-        boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-        fontSize: 14,
-        fontWeight: 500,
-        letterSpacing: "0.01em",
-      }}>
-        {/* Animated spinner */}
-        <svg
-          style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
-          width="18" height="18" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="2.5"
-          strokeLinecap="round" strokeLinejoin="round"
-        >
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
-        <span>
-          ⏳ Backend is waking up on Render's free tier — this may take up to 30 seconds. 
-          &nbsp;<span style={{ opacity: 0.8, fontWeight: 400 }}>Thank you for your patience!</span>
-        </span>
-        {/* Inline keyframes for the spinner */}
-        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-      </div>
-
       <div className="mx-auto max-w-7xl">
 
         {/* ── Page Header ── */}
@@ -1724,6 +1727,51 @@ function App() {
                   <p className="mt-1 text-xs text-slate-400">Language: <strong>{formData.programming_language || "unknown"}</strong></p>
                 </div>
 
+                {/* Inline toast-style error — pinned inside drawer, drawer stays open */}
+                {drawerError && (
+                  <div style={{
+                    position: "relative", overflow: "hidden",
+                    display: "flex", alignItems: "flex-start", gap: 10,
+                    background: "#fef2f2", border: "1px solid #fca5a5",
+                    borderRadius: 12, padding: "10px 12px",
+                  }}>
+                    {/* Red circle icon */}
+                    <div style={{
+                      width: 22, height: 22, borderRadius: "50%",
+                      background: "#dc2626", display: "flex",
+                      alignItems: "center", justifyContent: "center",
+                      flexShrink: 0, marginTop: 1,
+                    }}>
+                      <span style={{ color: "#fff", fontSize: 11, fontWeight: 700 }}>✕</span>
+                    </div>
+                    {/* Message */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#991b1b" }}>Entry already exists</p>
+                      <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#b91c1c" }}>{drawerError}</p>
+                    </div>
+                    {/* Close button */}
+                    <button
+                      type="button"
+                      onClick={() => { if (drawerErrorTimer.current) clearTimeout(drawerErrorTimer.current); setDrawerError(""); }}
+                      style={{
+                        background: "rgba(220,38,38,0.12)", border: "none", borderRadius: 5,
+                        color: "#dc2626", fontSize: 11, width: 18, height: 18,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: "pointer", flexShrink: 0, padding: 0,
+                      }}>
+                      ✕
+                    </button>
+                    {/* Progress bar — animates across 5 seconds */}
+                    <div style={{
+                      position: "absolute", bottom: 0, left: 0,
+                      height: 3, background: "#fca5a5",
+                      borderRadius: "0 0 0 12px",
+                      animation: "drawerErrorProgress 5s linear forwards",
+                    }} />
+                    <style>{`@keyframes drawerErrorProgress { from { width: 100%; } to { width: 0%; } }`}</style>
+                  </div>
+                )}
+
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-2">
                   <button type="submit" disabled={submitting}
@@ -1738,6 +1786,64 @@ function App() {
               </form>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Success / feedback toast — bottom right, auto-dismisses after 5s */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 32, right: 32,
+          zIndex: 9999,
+          background: toast.type === "success" ? "#15803d" : "#b91c1c",
+          color: "#fff",
+          borderRadius: 14,
+          padding: "14px 18px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          display: "flex", alignItems: "flex-start", gap: 12,
+          width: 320,
+          border: "1.5px solid rgba(255,255,255,0.2)",
+          overflow: "hidden", position: "fixed",
+          animation: "toastSlideIn 0.3s ease-out",
+        }}>
+          {/* Icon */}
+          <div style={{
+            width: 24, height: 24, borderRadius: "50%",
+            background: "rgba(255,255,255,0.25)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, fontSize: 12, fontWeight: 700, marginTop: 1,
+          }}>
+            {toast.type === "success" ? "✓" : "✕"}
+          </div>
+          {/* Message */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#fff" }}>
+              {toast.type === "success" ? "Saved successfully" : "Something went wrong"}
+            </p>
+            <p style={{ margin: "3px 0 0 0", fontSize: 12, color: "rgba(255,255,255,0.78)" }}>
+              {toast.message}
+            </p>
+          </div>
+          {/* Close button */}
+          <button
+            onClick={() => setToast(null)}
+            style={{
+              background: "rgba(255,255,255,0.18)", border: "none", borderRadius: 6,
+              color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700,
+              width: 22, height: 22, display: "flex", alignItems: "center",
+              justifyContent: "center", flexShrink: 0, padding: 0, marginTop: 1,
+            }}>
+            ✕
+          </button>
+          {/* Progress bar — 5s countdown */}
+          <div style={{
+            position: "absolute", bottom: 0, left: 0,
+            height: 3, background: "rgba(255,255,255,0.35)",
+            animation: "toastProgress 5s linear forwards",
+          }} />
+          <style>{`
+            @keyframes toastSlideIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+            @keyframes toastProgress { from { width: 100%; } to { width: 0%; } }
+          `}</style>
         </div>
       )}
 
