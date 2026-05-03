@@ -569,10 +569,22 @@ function StatsTab({ apis }) {
   const [filterDeveloper, setFilterDeveloper] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
 
+  // Searchable developer dropdown state
+  const [devSearch, setDevSearch] = useState("");
+  const [showDevDropdown, setShowDevDropdown] = useState(false);
+
   // Unique sorted lists for the filter dropdowns
   const allDevelopers = useMemo(() =>
     ["All", ...[...new Set(apis.map((a) => a.developer?.trim()).filter(Boolean))].sort()],
     [apis]
+  );
+
+  // Filtered developer list based on search input
+  const filteredDevelopers = useMemo(() =>
+    allDevelopers.filter((d) =>
+      d === "All" || d.toLowerCase().includes(devSearch.toLowerCase())
+    ),
+    [allDevelopers, devSearch]
   );
   const allCategories = useMemo(() =>
     ["All", ...[...new Set(apis.map((a) => a.category?.trim()).filter(Boolean))].sort()],
@@ -661,16 +673,59 @@ function StatsTab({ apis }) {
             <span className="text-sm font-bold text-slate-600">🔍 Filter Stats By:</span>
           </div>
 
-          {/* Developer filter */}
-          <div className="flex items-center gap-2">
+          {/* Developer filter — searchable dropdown */}
+          <div className="flex items-center gap-2" style={{ position: "relative" }}>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Developer</label>
-            <select
-              value={filterDeveloper}
-              onChange={(e) => setFilterDeveloper(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            >
-              {allDevelopers.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                placeholder={filterDeveloper === "All" ? "All Developers" : filterDeveloper}
+                value={devSearch}
+                onFocus={() => setShowDevDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDevDropdown(false), 150)}
+                onChange={(e) => { setDevSearch(e.target.value); setShowDevDropdown(true); }}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                style={{ width: 180 }}
+              />
+              {showDevDropdown && (
+                <div style={{
+                  position: "absolute", top: "110%", left: 0, zIndex: 200,
+                  background: "#fff", border: "1px solid #e2e8f0",
+                  borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                  maxHeight: 240, overflowY: "auto", minWidth: 200,
+                }}>
+                  {filteredDevelopers.length === 0 ? (
+                    <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>No matches found</div>
+                  ) : filteredDevelopers.map((d) => (
+                    <div
+                      key={d}
+                      onMouseDown={() => {
+                        setFilterDeveloper(d);
+                        setDevSearch("");
+                        setShowDevDropdown(false);
+                      }}
+                      style={{
+                        padding: "8px 14px", fontSize: 13, cursor: "pointer",
+                        fontWeight: d === filterDeveloper ? 700 : 400,
+                        color: d === filterDeveloper ? "#2563eb" : "#374151",
+                        background: d === filterDeveloper ? "#eff6ff" : "transparent",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = d === filterDeveloper ? "#eff6ff" : "#f8fafc"}
+                      onMouseLeave={(e) => e.currentTarget.style.background = d === filterDeveloper ? "#eff6ff" : "transparent"}
+                    >
+                      {d}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Show active filter badge */}
+            {filterDeveloper !== "All" && (
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
+                {filterDeveloper}
+                <button onMouseDown={() => { setFilterDeveloper("All"); setDevSearch(""); }} style={{ marginLeft: 4, color: "#2563eb", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>×</button>
+              </span>
+            )}
           </div>
 
           {/* Category filter */}
@@ -1267,8 +1322,8 @@ function App() {
 
   // ── Render ───────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-8 md:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 pt-8 pb-4 md:px-8 lg:px-12">
+      <div className="w-full">
 
         {/* ── Page Header ── */}
         <div className="mb-8 overflow-hidden rounded-[28px] border border-white/60 bg-white/80 shadow-xl backdrop-blur">
@@ -1285,7 +1340,7 @@ function App() {
                   Discover, manage, and analyze APIs and microservices in a centralized directory
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-300">Total APIs</p>
                   <p className="mt-2 text-2xl font-bold">{totalApis}</p>
@@ -1371,23 +1426,14 @@ function App() {
               </div>
             )}
 
-            {/* ── ADD API floating button ── */}
-            <div className="mb-4 flex justify-end">
-              <button
-                onClick={() => { resetForm(); setShowDrawer(true); }}
-                className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
-              >
-                + Add New API
-              </button>
-            </div>
-
-            {/* ── Search & Filter ── */}
+            {/* ── Search & Filter + Add Button (combined row) ── */}
             <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <input type="text"
                   placeholder="Search by name, category, language, framework..."
                   value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+                  className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                  style={{ flex: "1 1 0" }} />
                 <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}
                   className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition">
                   <option value="All">All Categories</option>
@@ -1414,6 +1460,15 @@ function App() {
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
                   {sortedFilteredApis.length} result{sortedFilteredApis.length !== 1 ? "s" : ""}
                 </span>
+                {/* Add New API button — moved into toolbar row */}
+                <div className="ml-auto">
+                  <button
+                    onClick={() => { resetForm(); setShowDrawer(true); }}
+                    className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
+                  >
+                    + Add New API
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1425,7 +1480,7 @@ function App() {
 
             {/* Loading skeleton */}
             {loading && (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {[1,2,3,4,5,6].map((i) => (
                   <div key={i} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="mb-3 h-5 w-2/3 rounded bg-slate-200" />
@@ -1448,9 +1503,9 @@ function App() {
               </div>
             )}
 
-            {/* ── Compact API cards — 3 col grid ── */}
+            {/* ── Compact API cards — 4 col grid ── */}
             {!loading && sortedFilteredApis.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {paginatedApis.map((api) => {
                   const isSelected = compareIds.includes(api.id);
                   const isDisabled = !isSelected && compareIds.length >= 4;
@@ -1466,6 +1521,9 @@ function App() {
                         boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.2)" : undefined,
                         position: "relative",
                         opacity: isDisabled ? 0.6 : 1,
+                        minHeight: 260,
+                        display: "flex",
+                        flexDirection: "column",
                       }}>
 
                       {/* ── Disabled overlay — shown when 4 APIs already selected ── */}
@@ -1563,7 +1621,7 @@ function App() {
                       )}
 
                       {/* ── Card actions ── */}
-                      <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
+                      <div className="mt-auto flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : api.id)}
                           className="text-xs font-semibold text-blue-500 transition hover:text-blue-700"
@@ -1595,7 +1653,7 @@ function App() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-center gap-2 flex-wrap">
+              <div className="mt-10 flex items-center justify-center gap-2 flex-wrap">
                 <button onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                   disabled={currentPage === 1}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
