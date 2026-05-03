@@ -607,15 +607,43 @@ function DonutChart({ segments, title }) {
 // COMPONENT: StatCard — single KPI tile
 // ─────────────────────────────────────────────
 function StatCard({ label, value, color, icon }) {
+  const icons = {
+    apis: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+      </svg>
+    ),
+    categories: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+    ),
+    developers: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    ),
+    lowrisk: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <polyline points="9 12 11 14 15 10"/>
+      </svg>
+    ),
+  };
+
   return (
-    <div className="rounded-2xl border p-5 shadow-sm"
+    <div className="rounded-2xl border px-5 py-4 shadow-sm"
       style={{ borderColor: color + "33", background: color + "0d" }}>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-xs font-bold uppercase tracking-wide" style={{ color }}>{label}</p>
-          <p className="mt-2 text-3xl font-black text-slate-900">{value}</p>
+          <p className="mt-1 text-2xl font-black text-slate-900">{value}</p>
         </div>
-        <span className="text-2xl">{icon}</span>
+        <div style={{ padding: 8, borderRadius: 10, background: color + "20", flexShrink: 0 }}>
+          {icons[icon] || null}
+        </div>
       </div>
     </div>
   );
@@ -675,7 +703,7 @@ function StatsTab({ apis }) {
   const developerCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => { const dev = a.developer?.trim() || "Unknown"; map[dev] = (map[dev] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 15)
       .map(([label, value], i) => ({ label, value, color: ["#6366f1","#8b5cf6","#a78bfa","#c4b5fd","#ddd6fe","#3b82f6","#60a5fa","#93c5fd","#bfdbfe","#e0f2fe"][i % 10] }));
   }, [filteredData]);
 
@@ -728,12 +756,12 @@ function StatsTab({ apis }) {
   return (
     <div className="space-y-8">
 
-      {/* ── Stats Filter Bar ── */}
-      <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-600">🔍 Filter Stats By:</span>
-          </div>
+      {/* ── Stats Filter Bar — matches main directory toolbar style ── */}
+      <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+
+          {/* Label */}
+          <span className="text-sm font-bold text-slate-600">Filter Stats By:</span>
 
           {/* Developer filter — searchable dropdown */}
           <div className="flex items-center gap-2" style={{ position: "relative" }}>
@@ -746,7 +774,7 @@ function StatsTab({ apis }) {
                 onFocus={() => setShowDevDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDevDropdown(false), 150)}
                 onChange={(e) => { setDevSearch(e.target.value); setShowDevDropdown(true); }}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
                 style={{ width: 180 }}
               />
               {showDevDropdown && (
@@ -778,10 +806,17 @@ function StatsTab({ apis }) {
                       {d}
                     </div>
                   ))}
+                  {/* Fade gradient — signals more items below */}
+                  <div style={{
+                    position: "sticky", bottom: 0,
+                    height: 32, pointerEvents: "none",
+                    background: "linear-gradient(to bottom, transparent, rgba(255,255,255,0.95))",
+                    borderRadius: "0 0 14px 14px",
+                  }} />
                 </div>
               )}
             </div>
-            {/* Show active filter badge */}
+            {/* Active developer filter badge */}
             {filterDeveloper !== "All" && (
               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
                 {filterDeveloper}
@@ -796,58 +831,60 @@ function StatsTab({ apis }) {
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
             >
               {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
-          {/* Reset button — only shown when a filter is active */}
+          {/* Reset button */}
           {isFiltered && (
             <button
-              onClick={() => { setFilterDeveloper("All"); setFilterCategory("All"); }}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100"
+              onClick={() => { setFilterDeveloper("All"); setFilterCategory("All"); setDevSearch(""); }}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-50"
             >
               Reset
             </button>
           )}
 
-          {/* Active filter label */}
+          {/* Active filter count badge */}
           {isFiltered && (
             <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
               Showing {filteredData.length} of {apis.length} APIs
             </span>
           )}
+
         </div>
       </div>
+
 
       {/* KPI tiles */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label={isFiltered ? "Filtered APIs" : "Total APIs"} value={totalApis} color="#3b82f6" icon="📦" />
-        <StatCard label="Categories" value={uniqueCategories} color="#8b5cf6" icon="🗂️" />
-        <StatCard label="Developers" value={uniqueDevelopers} color="#10b981" icon="👩‍💻" />
-        <StatCard label="Low Risk" value={lowRiskCount} color="#059669" icon="✅" />
+        <StatCard label={isFiltered ? "Filtered APIs" : "Total APIs"} value={totalApis} color="#3b82f6" icon="apis" />
+        <StatCard label="Categories" value={uniqueCategories} color="#8b5cf6" icon="categories" />
+        <StatCard label="Developers" value={uniqueDevelopers} color="#10b981" icon="developers" />
+        <StatCard label="Low Risk" value={lowRiskCount} color="#059669" icon="lowrisk" />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2" style={{ alignItems: "stretch" }}>
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <SimpleBarChart data={categoryCounts} title="APIs by Category" />
         </div>
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
+          <SimpleBarChart data={developerCounts} title="Top Developers by API Count" />
+        </div>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <DonutChart segments={riskCounts} title="Risk Level Distribution" />
         </div>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <SimpleBarChart data={developerCounts} title="Top Developers by API Count" />
-        </div>
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <SimpleBarChart data={languageCounts} title="Programming Languages" />
-        </div>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <DonutChart segments={costCounts} title="Cost Model Breakdown" />
+        </div>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <SimpleBarChart data={languageCounts} title="Programming Languages" />
         </div>
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <SimpleBarChart data={patternCounts} title="Design Patterns" />
@@ -1023,6 +1060,44 @@ function CompareModal({ apis, onClose }) {
 // Manages all global state and renders the full page.
 // Tabs: "directory" | "stats"
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// COMPONENT: BackToTop
+// Floating button that appears after scrolling down 300px.
+// Smooth scrolls back to top on click.
+// ─────────────────────────────────────────────
+function BackToTop() {
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 300);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <button
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      style={{
+        position: "fixed", bottom: 100, right: 32, zIndex: 999,
+        background: "#1e3a5f", color: "#fff",
+        border: "none", borderRadius: 12,
+        width: 44, height: 44,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+        cursor: "pointer", transition: "opacity 0.2s",
+        opacity: visible ? 1 : 0,
+      }}
+      title="Back to top"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="18 15 12 9 6 15"/>
+      </svg>
+    </button>
+  );
+}
+
 function App() {
   // ── Core state ──────────────────────────────
   const [apis, setApis] = useState([]);
@@ -1971,6 +2046,9 @@ function App() {
           `}</style>
         </div>
       )}
+
+      {/* ── Back to Top button — appears after scrolling down ── */}
+      <BackToTop />
 
       {/* Compare limit toast — shown briefly when user tries to select a 5th API */}
       {showCompareLimit && (
