@@ -6,7 +6,7 @@
  *  - GitHub auto-fill (fetch repo metadata automatically)
  *  - Post-fetch review modal: user fills in missing fields (framework, cost, latency, etc.)
  *  - Sample code generation from language templates (no API key needed)
- *  - Search & filter by keyword and category
+ *  - Search & filter by keyword and category with relevance ranking
  *  - Side-by-side comparison of up to 4 APIs
  *  - Stats Dashboard: charts by category, developer, risk, language
  */
@@ -19,71 +19,133 @@ import React, { useEffect, useMemo, useState } from "react";
 const API_BASE = "https://slib-directory-finder.onrender.com";
 
 // ─────────────────────────────────────────────
-// FUZZY SEARCH
-// Implements a lightweight fuzzy matching algorithm so users can
-// find entries even with typos or partial words.
+// SEARCH & RELEVANCE SCORING
 //
-// Strategy: combine two signals
-//   1. Substring match  — "pay" matches "Payments" (partial search)
-//   2. Character sequence match — checks that every character in the
-//      search term appears in order within the field value.
-//      e.g. "Stipe" matches "Stripe" because S-t-i-p-e all appear
-//      in order inside S-t-r-i-p-e.
+// Strategy: multi-signal relevance scoring so the most relevant
+// result always ranks first, not just "any match".
 //
-// A field is considered a match if EITHER signal returns true.
-// This satisfies the spec requirement for "partial and fuzzy search."
+// Scoring tiers (higher = more relevant):
+//   100 — exact name match          e.g. "fastify" = "fastify"
+//    80 — name starts with term     e.g. "fast" → "Fastify"
+//    60 — name contains term        e.g. "api" → "Stripe API"
+//    40 — high similarity score     e.g. "fatify" ~ "fastify" (typo)
+//    20 — fuzzy char sequence match on name
+//    10 — match on other fields     (description, category, developer…)
+//
+// Similarity uses a character-overlap ratio so "fatify"→"fastify"
+// scores much higher than "fatify"→"financial".
+// Results with score === 0 are excluded entirely.
 // ─────────────────────────────────────────────
 
 /**
- * fuzzyMatch
- * Returns true if `term` loosely matches `str`.
+ * similarityScore
+ * Returns a 0–1 score of how similar two strings are.
+ * Uses bigram (2-character pair) overlap — language-agnostic and
+ * typo-tolerant. "fastify" vs "fatify" → ~0.72
  *
- * @param {string} str  - The field value to search within (should be lowercased)
- * @param {string} term - The search query (should be lowercased)
- * @returns {boolean}
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} 0 (no similarity) to 1 (identical)
  */
-function fuzzyMatch(str, term) {
-  if (!str || !term) return false;
+function similarityScore(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
 
-  // Signal 1: direct substring — handles normal partial search
-  if (str.includes(term)) return true;
+  // Build bigram sets
+  const getBigrams = (str) => {
+    const bigrams = new Set();
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.add(str.slice(i, i + 2));
+    }
+    return bigrams;
+  };
 
-  // Signal 2: character sequence — handles typos and skipped letters
-  // Walk through `str` trying to consume every character in `term` in order
-  let termIndex = 0;
-  for (let i = 0; i < str.length && termIndex < term.length; i++) {
-    if (str[i] === term[termIndex]) termIndex++;
+  const bigramsA = getBigrams(a);
+  const bigramsB = getBigrams(b);
+
+  if (bigramsA.size === 0 || bigramsB.size === 0) {
+    // Fallback for single-char strings — check direct inclusion
+    return a.includes(b) || b.includes(a) ? 0.5 : 0;
   }
-  // If we consumed all characters in term, it's a fuzzy match
-  return termIndex === term.length;
+
+  let intersection = 0;
+  bigramsA.forEach((bg) => { if (bigramsB.has(bg)) intersection++; });
+
+  return (2 * intersection) / (bigramsA.size + bigramsB.size);
 }
 
 /**
- * fuzzyMatchApi
- * Returns true if the search term fuzzy-matches ANY searchable field of an API entry.
+ * fuzzyCharMatch
+ * Returns true if every character in `term` appears in `str` in order.
+ * Used as a last-resort signal for very short terms.
  *
- * @param {object} api  - An ApiEntry object
- * @param {string} term - Lowercased search query
+ * @param {string} str
+ * @param {string} term
  * @returns {boolean}
  */
-function fuzzyMatchApi(api, term) {
-  if (!term) return true; // empty search shows everything
+function fuzzyCharMatch(str, term) {
+  if (!str || !term) return false;
+  let ti = 0;
+  for (let i = 0; i < str.length && ti < term.length; i++) {
+    if (str[i] === term[ti]) ti++;
+  }
+  return ti === term.length;
+}
 
-  const fields = [
-    api.name,
+/**
+ * scoreApi
+ * Returns a numeric relevance score for an API entry against a search term.
+ * Score of 0 means no match — exclude from results.
+ *
+ * @param {object} api  - An ApiEntry object
+ * @param {string} term - Lowercased, trimmed search query
+ * @returns {number}
+ */
+function scoreApi(api, term) {
+  if (!term) return 1; // empty search — everything passes with neutral score
+
+  const name = (api.name || "").toLowerCase();
+  const SIMILARITY_THRESHOLD = 0.4; // minimum similarity to count as a match
+
+  // ── Tier 1: Exact name match ──
+  if (name === term) return 100;
+
+  // ── Tier 2: Name starts with term ──
+  if (name.startsWith(term)) return 80;
+
+  // ── Tier 3: Name contains term as substring ──
+  if (name.includes(term)) return 60;
+
+  // ── Tier 4: High similarity on name (typo tolerance) ──
+  const nameSim = similarityScore(name, term);
+  if (nameSim >= SIMILARITY_THRESHOLD) {
+    // Scale score 40–59 based on similarity (closer → higher)
+    return Math.round(40 + nameSim * 19);
+  }
+
+  // ── Tier 5: Fuzzy character sequence on name ──
+  // Only allow if term is at least 3 chars to avoid too many false positives
+  if (term.length >= 3 && fuzzyCharMatch(name, term)) return 20;
+
+  // ── Tier 6: Match on other fields (description, category, developer, etc.) ──
+  const otherFields = [
     api.category,
     api.description,
-    api.version,
     api.developer,
     api.programming_language,
     api.framework,
     api.cost,
-    api.latency,
-    api.scalability,
     api.design_pattern,
   ];
 
-  return fields.some((field) => fuzzyMatch((field || "").toLowerCase(), term));
+  for (const field of otherFields) {
+    const f = (field || "").toLowerCase();
+    if (f.includes(term)) return 10;
+    if (similarityScore(f, term) >= SIMILARITY_THRESHOLD) return 8;
+  }
+
+  // No match
+  return 0;
 }
 
 // ─────────────────────────────────────────────
@@ -1286,25 +1348,30 @@ function App() {
 
   const filteredApis = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
-    return apis.filter((api) => {
-      // Use fuzzy matching — handles typos, partial words, and character sequences
-      const matchesSearch = fuzzyMatchApi(api, term);
-      const matchesCategory = selectedCategory === "All" || api.category === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
+    return apis
+      .map((api) => ({ ...api, _score: scoreApi(api, term) }))
+      .filter((api) => api._score > 0 &&
+        (selectedCategory === "All" || api.category === selectedCategory)
+      );
   }, [apis, searchTerm, selectedCategory]);
 
   // Sort the filtered list based on the current sortBy selection
+  // When user is actively searching and sort is default → rank by relevance score
   const sortedFilteredApis = useMemo(() => {
     const list = [...filteredApis];
+    const isSearching = searchTerm.trim().length > 0;
+
     if (sortBy === "name-asc")   return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     if (sortBy === "name-desc")  return list.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
     if (sortBy === "risk-high")  return list.sort((a, b) => ["High","Medium","Low"].indexOf(a.risk_level) - ["High","Medium","Low"].indexOf(b.risk_level));
     if (sortBy === "risk-low")   return list.sort((a, b) => ["Low","Medium","High"].indexOf(a.risk_level) - ["Low","Medium","High"].indexOf(b.risk_level));
     if (sortBy === "category")   return list.sort((a, b) => (a.category || "").localeCompare(b.category || ""));
     if (sortBy === "developer")  return list.sort((a, b) => (a.developer || "").localeCompare(b.developer || ""));
-    return list; // "default" = original DB order
-  }, [filteredApis, sortBy]);
+
+    // Default sort — rank by relevance score when searching, original DB order otherwise
+    if (isSearching) return list.sort((a, b) => b._score - a._score);
+    return list;
+  }, [filteredApis, sortBy, searchTerm]);
 
   // Reset to page 1 whenever search, category or sort changes
   useEffect(() => { setCurrentPage(1); }, [searchTerm, selectedCategory, sortBy]);
