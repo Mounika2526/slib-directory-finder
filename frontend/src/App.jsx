@@ -1595,15 +1595,24 @@ function App() {
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-50">
                   Reset
                 </button>
-                <button onClick={exportToCSV}
-                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100">
-                  ⬇ CSV
-                </button>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
                   {sortedFilteredApis.length} result{sortedFilteredApis.length !== 1 ? "s" : ""}
                 </span>
-                {/* Add New API button — moved into toolbar row */}
-                <div className="ml-auto">
+                {/* Add New API + Export CSV — grouped on the right */}
+                <div className="ml-auto flex items-center gap-3">
+                  {/* Subtle divider */}
+                  <div style={{ width: 1, height: 24, background: "#e2e8f0", flexShrink: 0 }} />
+                  {/* Dynamic export button */}
+                  <button onClick={exportToCSV}
+                    className={`rounded-xl px-3 py-2.5 text-xs font-bold transition ${
+                      searchTerm || selectedCategory !== "All"
+                        ? "border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    }`}>
+                    ⬇ {searchTerm || selectedCategory !== "All"
+                      ? `Export ${sortedFilteredApis.length} Results (CSV)`
+                      : `Export All ${sortedFilteredApis.length} (CSV)`}
+                  </button>
                   <button
                     onClick={() => { resetForm(); setShowDrawer(true); }}
                     className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
@@ -1647,7 +1656,7 @@ function App() {
 
             {/* ── Compact API cards — 4 col grid ── */}
             {!loading && sortedFilteredApis.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ alignItems: "start" }}>
                 {paginatedApis.map((api) => {
                   const isSelected = compareIds.includes(api.id);
                   const isDisabled = !isSelected && compareIds.length >= 4;
@@ -1663,7 +1672,6 @@ function App() {
                         boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.2)" : undefined,
                         position: "relative",
                         opacity: isDisabled ? 0.6 : 1,
-                        minHeight: 260,
                         display: "flex",
                         flexDirection: "column",
                       }}>
