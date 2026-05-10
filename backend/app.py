@@ -489,7 +489,17 @@ def delete_api(id):
     db.session.commit()
 
     return jsonify({"message": "API deleted successfully"})
-
+    
+@app.route('/api/seed-extended', methods=['POST'])
+def seed_extended():
+    secret = request.headers.get('X-Seed-Secret')
+    if secret != 'new_data_adding':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    from seed_apis_extended import seed
+    seed()
+    total = ApiEntry.query.count()
+    return jsonify({'message': 'Seeded successfully', 'total': total})
 
 @app.route("/api/github-fetch", methods=["POST"])
 def github_fetch():
