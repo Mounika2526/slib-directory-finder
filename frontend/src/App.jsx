@@ -13,7 +13,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { scoreApi } from "./utils/search";
-import { getRiskBadgeClass } from "./utils/riskHelpers";
+import { getRiskBadgeClass, getRiskColor } from "./utils/riskHelpers";
 import { generateSampleCode } from "./utils/codeGenerator";
 import ReviewModal from "./components/ReviewModal";
 import StatsTab from "./components/StatsTab";
@@ -783,6 +783,9 @@ function App() {
 
               </div>
             )}
+          </>
+        )}
+      </div>
 
       {/* ── Slide-in form drawer ── */}
       {showDrawer && (
