@@ -585,7 +585,7 @@ with app.app_context():
 
 # ─────────────────────────────────────────────
 # ONE-TIME AUTO SEED
-# Imports the seed function from seed_apis.py and runs it.
+# Imports the seed function from seed_data.py and runs it.
 # The seed function checks if data already exists — if yes,
 # it skips immediately. Runs once on first deploy, never again.
 # ─────────────────────────────────────────────
