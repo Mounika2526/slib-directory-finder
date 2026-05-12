@@ -13,7 +13,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { scoreApi } from "./utils/search";
-import { getRiskBadgeClass } from "./utils/riskHelpers";
+import { getRiskBadgeClass, getRiskColor } from "./utils/riskHelpers";
 import { generateSampleCode } from "./utils/codeGenerator";
 import ReviewModal from "./components/ReviewModal";
 import StatsTab from "./components/StatsTab";
@@ -580,7 +580,7 @@ function App() {
 
             {/* ── API Cards grid ── */}
             {!loading && sortedFilteredApis.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ alignItems: "start" }}>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ alignItems: "stretch" }}>
                 {paginatedApis.map((api) => {
                   const isSelected = compareIds.includes(api.id);
                   const isDisabled = !isSelected && compareIds.length >= 4;
@@ -723,24 +723,64 @@ function App() {
             {/* Pagination */}
             {totalPages > 1 && (
               <div className="mt-10 flex items-center justify-center gap-2 flex-wrap">
-                <button onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+
+                {/* Prev button */}
+                <button
+                  onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                   disabled={currentPage === 1}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
                   ← Prev
                 </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <button key={page} onClick={() => { setCurrentPage(page); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                    className="rounded-xl border px-4 py-2 text-sm font-bold transition"
-                    style={{ background: currentPage === page ? "#3b82f6" : "white", color: currentPage === page ? "white" : "#64748b", borderColor: currentPage === page ? "#3b82f6" : "#e2e8f0" }}>
-                    {page}
-                  </button>
-                ))}
-                <button onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+
+                {/* Smart page numbers with dots */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((page) => {
+                    return (
+                      page === 1 ||
+                      page === totalPages ||
+                      (page >= currentPage - 2 && page <= currentPage + 2)
+                    );
+                  })
+                  .reduce((acc, page, idx, arr) => {
+                    if (idx > 0 && page - arr[idx - 1] > 1) {
+                      acc.push("...");
+                    }
+                    acc.push(page);
+                    return acc;
+                  }, [])
+                  .map((item, idx) =>
+                    item === "..." ? (
+                      <span key={`dots-${idx}`} className="px-2 text-sm font-semibold text-slate-400">
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        onClick={() => { setCurrentPage(item); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        className="rounded-xl border px-4 py-2 text-sm font-bold transition"
+                        style={{
+                          background: currentPage === item ? "#3b82f6" : "white",
+                          color: currentPage === item ? "white" : "#64748b",
+                          borderColor: currentPage === item ? "#3b82f6" : "#e2e8f0",
+                        }}>
+                        {item}
+                      </button>
+                    )
+                  )}
+
+                {/* Next button */}
+                <button
+                  onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                   disabled={currentPage === totalPages}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
                   Next →
                 </button>
-                <span className="text-sm text-slate-400 ml-2">Page {currentPage} of {totalPages} · {sortedFilteredApis.length} total</span>
+
+                {/* Page info */}
+                <span className="ml-2 text-sm text-slate-400">
+                  Page {currentPage} of {totalPages} · {sortedFilteredApis.length} total
+                </span>
+
               </div>
             )}
           </>
