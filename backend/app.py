@@ -592,7 +592,7 @@ with app.app_context():
 
 with app.app_context():
     try:
-        from seed_apis import seed
+        from seed_data import seed
         seed()
     except Exception as e:
         print(f"[SEED] Skipped: {e}")
