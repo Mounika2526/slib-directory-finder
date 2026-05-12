@@ -12,1054 +12,18 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import { scoreApi } from "./utils/search";
+import { getRiskBadgeClass } from "./utils/riskHelpers";
+import { generateSampleCode } from "./utils/codeGenerator";
+import ReviewModal from "./components/ReviewModal";
+import StatsTab from "./components/StatsTab";
+import CompareModal from "./components/CompareModal";
 
 // ─────────────────────────────────────────────
 // BACKEND BASE URL — update if deployment changes
 // ─────────────────────────────────────────────
 const API_BASE = "https://slib-directory-finder.onrender.com";
 
-// ─────────────────────────────────────────────
-// SEARCH & RELEVANCE SCORING
-//
-// Strategy: multi-signal relevance scoring so the most relevant
-// result always ranks first, not just "any match".
-//
-// Scoring tiers (higher = more relevant):
-//   100 — exact name match          e.g. "fastify" = "fastify"
-//    80 — name starts with term     e.g. "fast" → "Fastify"
-//    60 — name contains term        e.g. "api" → "Stripe API"
-//    40 — high similarity score     e.g. "fatify" ~ "fastify" (typo)
-//    20 — fuzzy char sequence match on name
-//    10 — match on other fields     (description, category, developer…)
-//
-// Similarity uses a character-overlap ratio so "fatify"→"fastify"
-// scores much higher than "fatify"→"financial".
-// Results with score === 0 are excluded entirely.
-// ─────────────────────────────────────────────
-
-/**
- * similarityScore
- * Returns a 0–1 score of how similar two strings are.
- * Uses bigram (2-character pair) overlap — language-agnostic and
- * typo-tolerant. "fastify" vs "fatify" → ~0.72
- *
- * @param {string} a
- * @param {string} b
- * @returns {number} 0 (no similarity) to 1 (identical)
- */
-function similarityScore(a, b) {
-  if (!a || !b) return 0;
-  if (a === b) return 1;
-
-  // Build bigram sets
-  const getBigrams = (str) => {
-    const bigrams = new Set();
-    for (let i = 0; i < str.length - 1; i++) {
-      bigrams.add(str.slice(i, i + 2));
-    }
-    return bigrams;
-  };
-
-  const bigramsA = getBigrams(a);
-  const bigramsB = getBigrams(b);
-
-  if (bigramsA.size === 0 || bigramsB.size === 0) {
-    // Fallback for single-char strings — check direct inclusion
-    return a.includes(b) || b.includes(a) ? 0.5 : 0;
-  }
-
-  let intersection = 0;
-  bigramsA.forEach((bg) => { if (bigramsB.has(bg)) intersection++; });
-
-  return (2 * intersection) / (bigramsA.size + bigramsB.size);
-}
-
-/**
- * fuzzyCharMatch
- * Returns true if every character in `term` appears in `str` in order.
- * Used as a last-resort signal for very short terms.
- *
- * @param {string} str
- * @param {string} term
- * @returns {boolean}
- */
-function fuzzyCharMatch(str, term) {
-  if (!str || !term) return false;
-  let ti = 0;
-  for (let i = 0; i < str.length && ti < term.length; i++) {
-    if (str[i] === term[ti]) ti++;
-  }
-  return ti === term.length;
-}
-
-/**
- * scoreApi
- * Returns a numeric relevance score for an API entry against a search term.
- * Score of 0 means no match — exclude from results.
- *
- * @param {object} api  - An ApiEntry object
- * @param {string} term - Lowercased, trimmed search query
- * @returns {number}
- */
-function scoreApi(api, term) {
-  if (!term) return 1; // empty search — everything passes with neutral score
-
-  const name = (api.name || "").toLowerCase();
-  const SIMILARITY_THRESHOLD = 0.4; // minimum similarity to count as a match
-
-  // ── Tier 1: Exact name match ──
-  if (name === term) return 100;
-
-  // ── Tier 2: Name starts with term ──
-  if (name.startsWith(term)) return 80;
-
-  // ── Tier 3: Name contains term as substring ──
-  if (name.includes(term)) return 60;
-
-  // ── Tier 4: High similarity on name (typo tolerance) ──
-  const nameSim = similarityScore(name, term);
-  if (nameSim >= SIMILARITY_THRESHOLD) {
-    // Scale score 40–59 based on similarity (closer → higher)
-    return Math.round(40 + nameSim * 19);
-  }
-
-  // ── Tier 5: Fuzzy character sequence on name ──
-  // Only allow if term is at least 3 chars to avoid too many false positives
-  if (term.length >= 3 && fuzzyCharMatch(name, term)) return 20;
-
-  // ── Tier 6: Match on other fields (description, category, developer, etc.) ──
-  const otherFields = [
-    api.category,
-    api.description,
-    api.developer,
-    api.programming_language,
-    api.framework,
-    api.cost,
-    api.design_pattern,
-  ];
-
-  for (const field of otherFields) {
-    const f = (field || "").toLowerCase();
-    if (f.includes(term)) return 10;
-    if (similarityScore(f, term) >= SIMILARITY_THRESHOLD) return 8;
-  }
-
-  // No match
-  return 0;
-}
-
-// ─────────────────────────────────────────────
-// SAMPLE CODE TEMPLATES
-// Keyed by programming language (lowercase).
-// Each template receives the API name as a parameter.
-// Covers the most common languages found in GitHub repos.
-// ─────────────────────────────────────────────
-const CODE_TEMPLATES = {
-  javascript: (name) =>
-`// ${name} — JavaScript (fetch)
-const response = await fetch('https://api.example.com/v1/endpoint', {
-  method: 'GET',
-  headers: {
-    'Authorization': 'Bearer YOUR_API_KEY',
-    'Content-Type': 'application/json'
-  }
-});
-const data = await response.json();
-console.log(data);`,
-
-  typescript: (name) =>
-`// ${name} — TypeScript (fetch)
-const response = await fetch('https://api.example.com/v1/endpoint', {
-  method: 'GET',
-  headers: {
-    'Authorization': 'Bearer YOUR_API_KEY',
-    'Content-Type': 'application/json'
-  }
-});
-const data: Record<string, unknown> = await response.json();
-console.log(data);`,
-
-  python: (name) =>
-`# ${name} — Python (requests)
-import requests
-
-headers = {
-    "Authorization": "Bearer YOUR_API_KEY",
-    "Content-Type": "application/json"
-}
-
-response = requests.get("https://api.example.com/v1/endpoint", headers=headers)
-data = response.json()
-print(data)`,
-
-  java: (name) =>
-`// ${name} — Java (HttpClient)
-import java.net.http.*;
-import java.net.URI;
-
-HttpClient client = HttpClient.newHttpClient();
-HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("https://api.example.com/v1/endpoint"))
-    .header("Authorization", "Bearer YOUR_API_KEY")
-    .GET()
-    .build();
-
-HttpResponse<String> response = client.send(request,
-    HttpResponse.BodyHandlers.ofString());
-System.out.println(response.body());`,
-
-  go: (name) =>
-`// ${name} — Go (net/http)
-package main
-
-import (
-    "fmt"
-    "net/http"
-    "io/ioutil"
-)
-
-req, _ := http.NewRequest("GET", "https://api.example.com/v1/endpoint", nil)
-req.Header.Set("Authorization", "Bearer YOUR_API_KEY")
-
-client := &http.Client{}
-resp, _ := client.Do(req)
-defer resp.Body.Close()
-
-body, _ := ioutil.ReadAll(resp.Body)
-fmt.Println(string(body))`,
-
-  ruby: (name) =>
-`# ${name} — Ruby (Net::HTTP)
-require 'net/http'
-require 'json'
-
-uri = URI('https://api.example.com/v1/endpoint')
-http = Net::HTTP.new(uri.host, uri.port)
-http.use_ssl = true
-
-request = Net::HTTP::Get.new(uri)
-request['Authorization'] = 'Bearer YOUR_API_KEY'
-
-response = http.request(request)
-puts JSON.parse(response.body)`,
-
-  php: (name) =>
-`<?php
-// ${name} — PHP (cURL)
-$curl = curl_init();
-curl_setopt_array($curl, [
-    CURLOPT_URL => "https://api.example.com/v1/endpoint",
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HTTPHEADER => [
-        "Authorization: Bearer YOUR_API_KEY",
-        "Content-Type: application/json"
-    ],
-]);
-$response = curl_exec($curl);
-curl_close($curl);
-echo $response;`,
-
-  rust: (name) =>
-`// ${name} — Rust (reqwest)
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-
-let client = reqwest::Client::new();
-let response = client
-    .get("https://api.example.com/v1/endpoint")
-    .header(AUTHORIZATION, "Bearer YOUR_API_KEY")
-    .header(CONTENT_TYPE, "application/json")
-    .send()
-    .await?;
-
-let data = response.text().await?;
-println!("{}", data);`,
-
-  "c#": (name) =>
-`// ${name} — C# (HttpClient)
-using System.Net.Http;
-using System.Net.Http.Headers;
-
-var client = new HttpClient();
-client.DefaultRequestHeaders.Authorization =
-    new AuthenticationHeaderValue("Bearer", "YOUR_API_KEY");
-
-var response = await client.GetAsync("https://api.example.com/v1/endpoint");
-var content = await response.Content.ReadAsStringAsync();
-Console.WriteLine(content);`,
-
-  kotlin: (name) =>
-`// ${name} — Kotlin (OkHttp)
-val client = OkHttpClient()
-val request = Request.Builder()
-    .url("https://api.example.com/v1/endpoint")
-    .addHeader("Authorization", "Bearer YOUR_API_KEY")
-    .build()
-
-client.newCall(request).execute().use { response ->
-    println(response.body?.string())
-}`,
-
-  swift: (name) =>
-`// ${name} — Swift (URLSession)
-var request = URLRequest(url: URL(string: "https://api.example.com/v1/endpoint")!)
-request.setValue("Bearer YOUR_API_KEY", forHTTPHeaderField: "Authorization")
-
-URLSession.shared.dataTask(with: request) { data, response, error in
-    if let data = data {
-        print(String(data: data, encoding: .utf8) ?? "")
-    }
-}.resume()`,
-
-  // Default fallback for any unrecognized language — uses curl (universal)
-  default: (name) =>
-`# ${name} — cURL (universal)
-curl -X GET "https://api.example.com/v1/endpoint" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json"`,
-};
-
-/**
- * generateSampleCode
- * Returns a language-specific code template for the given API name and language.
- *
- * @param {string} name     - API or library name (used in the comment header)
- * @param {string} language - Programming language (matched case-insensitively)
- * @returns {string} - A formatted code snippet string
- */
-function generateSampleCode(name, language) {
-  const lang = (language || "").toLowerCase().trim();
-  const templateFn = CODE_TEMPLATES[lang] || CODE_TEMPLATES["default"];
-  return templateFn(name);
-}
-
-// ─────────────────────────────────────────────
-// HELPER: Tailwind classes for risk badge color
-// ─────────────────────────────────────────────
-function getRiskBadgeClass(riskLevel) {
-  if (riskLevel === "High") return "bg-red-100 text-red-700";
-  if (riskLevel === "Medium") return "bg-yellow-100 text-yellow-700";
-  return "bg-emerald-100 text-emerald-700";
-}
-
-// ─────────────────────────────────────────────
-// HELPER: Hex color for risk level (used in charts/compare)
-// ─────────────────────────────────────────────
-function getRiskColor(risk) {
-  if (risk === "High") return "#dc2626";
-  if (risk === "Medium") return "#d97706";
-  return "#059669";
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: ReviewModal
-// Shown after a GitHub fetch to let the user fill in
-// fields that GitHub doesn't provide, and optionally
-// generate a sample code snippet from a language template.
-//
-// Props:
-//   formData        — current form state (pre-filled from GitHub)
-//   onUpdate        — callback(field, value) to update a single field
-//   onGenerateCode  — callback to auto-fill sample_code from template
-//   onConfirm       — callback when user clicks Save / confirm
-//   onCancel        — callback when user dismisses the modal
-// ─────────────────────────────────────────────
-function ReviewModal({ formData, onUpdate, onGenerateCode, onConfirm, onCancel }) {
-  // Fields that GitHub cannot provide — these are what the user needs to fill
-  const missingFields = [
-    { key: "framework", label: "Framework", placeholder: "e.g. REST, GraphQL, gRPC, SDK" },
-    { key: "cost", label: "Cost", placeholder: "e.g. Free, Paid/Premium, Freemium, Open Source" },
-    { key: "latency", label: "Latency", placeholder: "e.g. Low, Medium, High" },
-    { key: "scalability", label: "Scalability", placeholder: "e.g. High, Medium, Low" },
-    { key: "design_pattern", label: "Design Pattern", placeholder: "e.g. REST, GraphQL, Event-Driven, Pub/Sub" },
-  ];
-
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(15,23,42,0.7)",
-        backdropFilter: "blur(6px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "24px 16px", overflowY: "auto",
-      }}
-    >
-      <div style={{
-        background: "#fff", borderRadius: 28, width: "100%", maxWidth: 600,
-        boxShadow: "0 32px 80px rgba(0,0,0,0.25)", overflow: "hidden",
-      }}>
-        {/* Modal header */}
-        <div style={{
-          background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%)",
-          padding: "24px 28px",
-        }}>
-          <p style={{ color: "#93c5fd", fontSize: 12, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
-            GitHub Data Fetched ✓
-          </p>
-          <h2 style={{ color: "#fff", fontSize: 20, fontWeight: 800, margin: "0 0 4px 0" }}>
-            Review & Complete Entry
-          </h2>
-          <p style={{ color: "#94a3b8", fontSize: 13, margin: 0 }}>
-            Fill in the fields below that GitHub couldn't provide, then save.
-          </p>
-        </div>
-
-        <div style={{ padding: "24px 28px", maxHeight: "70vh", overflowY: "auto" }}>
-          {/* Read-only summary of what was fetched */}
-          <div style={{
-            background: "#f8fafc", borderRadius: 16, padding: "14px 18px",
-            marginBottom: 20, border: "1px solid #e2e8f0",
-          }}>
-            <p style={{ margin: "0 0 8px 0", fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Fetched from GitHub
-            </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
-              {[
-                { label: "Name", value: formData.name },
-                { label: "Developer", value: formData.developer },
-                { label: "Category", value: formData.category },
-                { label: "Language", value: formData.programming_language || "Unknown" },
-                { label: "Version", value: formData.version },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>{label}: </span>
-                  <span style={{ fontSize: 12, color: "#1e293b", fontWeight: 600 }}>{value || "—"}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Fields to fill in manually */}
-          <p style={{ margin: "0 0 12px 0", fontSize: 13, fontWeight: 700, color: "#374151" }}>
-            Please fill in the missing fields:
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-            {missingFields.map((field) => (
-              <div key={field.key}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-                  {field.label}
-                </label>
-                <input
-                  type="text"
-                  value={formData[field.key] || ""}
-                  onChange={(e) => onUpdate(field.key, e.target.value)}
-                  placeholder={field.placeholder}
-                  style={{
-                    width: "100%", boxSizing: "border-box",
-                    borderRadius: 14, border: "1px solid #cbd5e1",
-                    background: "#f8fafc", padding: "10px 14px",
-                    fontSize: 13, color: "#1e293b", outline: "none",
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* Sample code section with template generator */}
-          <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>
-                Sample Code
-              </label>
-              {/* Generate from template button */}
-              <button
-                type="button"
-                onClick={onGenerateCode}
-                style={{
-                  background: "#6366f1", color: "#fff",
-                  border: "none", borderRadius: 10,
-                  padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                ✨ Generate from Template
-              </button>
-            </div>
-            <p style={{ margin: "0 0 8px 0", fontSize: 11, color: "#94a3b8" }}>
-              Language detected: <strong>{formData.programming_language || "Unknown"}</strong> — click Generate to auto-fill a starter snippet, then edit as needed.
-            </p>
-            <textarea
-              value={formData.sample_code || ""}
-              onChange={(e) => onUpdate("sample_code", e.target.value)}
-              placeholder="Paste or generate sample usage code here..."
-              rows={6}
-              style={{
-                width: "100%", boxSizing: "border-box",
-                borderRadius: 14, border: "1px solid #cbd5e1",
-                background: "#0f172a", padding: "12px 14px",
-                fontSize: 12, color: "#e2e8f0", fontFamily: "monospace",
-                outline: "none", resize: "vertical",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div style={{
-          padding: "16px 28px 24px 28px",
-          display: "flex", gap: 12, justifyContent: "flex-end",
-          borderTop: "1px solid #f1f5f9",
-        }}>
-          <button
-            onClick={onCancel}
-            style={{
-              background: "white", color: "#64748b",
-              border: "1px solid #e2e8f0", borderRadius: 14,
-              padding: "10px 20px", fontSize: 13, fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            style={{
-              background: "#3b82f6", color: "#fff",
-              border: "none", borderRadius: 14,
-              padding: "10px 24px", fontSize: 13, fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Save Entry
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: SimpleBarChart
-// Horizontal bar chart using plain divs.
-// Props: data — [{ label, value, color }], title — string
-// ─────────────────────────────────────────────
-function SimpleBarChart({ data, title }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div>
-      {title && <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">{title}</p>}
-      <div className="space-y-3">
-        {data.map((item) => (
-          <div key={item.label}>
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-medium text-slate-700" style={{ maxWidth: "65%" }}>{item.label}</span>
-              <span className="text-sm font-bold text-slate-900">{item.value}</span>
-            </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${(item.value / max) * 100}%`, background: item.color || "#3b82f6" }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: DonutChart
-// CSS conic-gradient donut chart.
-// Props: segments — [{ label, value, color }], title — string
-// ─────────────────────────────────────────────
-function DonutChart({ segments, title }) {
-  const total = segments.reduce((sum, s) => sum + s.value, 0);
-  if (total === 0) return null;
-
-  let cumulative = 0;
-  const gradient = `conic-gradient(${segments.map((seg) => {
-    const pct = (seg.value / total) * 100;
-    const part = `${seg.color} ${cumulative}% ${cumulative + pct}%`;
-    cumulative += pct;
-    return part;
-  }).join(", ")})`;
-
-  return (
-    <div>
-      {title && <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">{title}</p>}
-      <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-        <div className="relative flex-shrink-0">
-          <div style={{ width: 140, height: 140, borderRadius: "50%", background: gradient }} />
-          <div style={{
-            position: "absolute", top: "50%", left: "50%",
-            transform: "translate(-50%, -50%)",
-            width: 80, height: 80, borderRadius: "50%", background: "white",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <span className="text-lg font-black text-slate-800">{total}</span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          {segments.map((seg) => (
-            <div key={seg.label} className="flex items-center gap-2">
-              <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ background: seg.color }} />
-              <span className="text-sm text-slate-700">
-                {seg.label} <span className="font-bold text-slate-900">{seg.value}</span>{" "}
-                <span className="text-slate-400">({Math.round((seg.value / total) * 100)}%)</span>
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: StatCard — single KPI tile
-// ─────────────────────────────────────────────
-function StatCard({ label, value, color, icon }) {
-  const icons = {
-    apis: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-      </svg>
-    ),
-    categories: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-      </svg>
-    ),
-    developers: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>
-    ),
-    lowrisk: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        <polyline points="9 12 11 14 15 10"/>
-      </svg>
-    ),
-  };
-
-  return (
-    <div className="rounded-2xl border px-5 py-4 shadow-sm"
-      style={{ borderColor: color + "33", background: color + "0d" }}>
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide" style={{ color }}>{label}</p>
-          <p className="mt-1 text-2xl font-black text-slate-900">{value}</p>
-        </div>
-        <div style={{ padding: 8, borderRadius: 10, background: color + "20", flexShrink: 0 }}>
-          {icons[icon] || null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: StatsTab
-// Full analytics dashboard computed from the API list.
-// Props: apis — full array of API entry objects
-// ─────────────────────────────────────────────
-function StatsTab({ apis }) {
-  // ── Filter state — user can narrow stats by developer or category ──
-  const [filterDeveloper, setFilterDeveloper] = useState("All");
-  const [filterCategory, setFilterCategory] = useState("All");
-
-  // Searchable developer dropdown state
-  const [devSearch, setDevSearch] = useState("");
-  const [showDevDropdown, setShowDevDropdown] = useState(false);
-
-  // Unique sorted lists for the filter dropdowns
-  const allDevelopers = useMemo(() =>
-    ["All", ...[...new Set(apis.map((a) => a.developer?.trim()).filter(Boolean))].sort()],
-    [apis]
-  );
-
-  // Filtered developer list based on search input
-  const filteredDevelopers = useMemo(() =>
-    allDevelopers.filter((d) =>
-      d === "All" || d.toLowerCase().includes(devSearch.toLowerCase())
-    ),
-    [allDevelopers, devSearch]
-  );
-  const allCategories = useMemo(() =>
-    ["All", ...[...new Set(apis.map((a) => a.category?.trim()).filter(Boolean))].sort()],
-    [apis]
-  );
-
-  // Apply developer + category filters to the full API list
-  // All charts and KPIs below use this filtered subset
-  const filteredData = useMemo(() => apis.filter((a) => {
-    const matchDev = filterDeveloper === "All" || a.developer?.trim() === filterDeveloper;
-    const matchCat = filterCategory === "All" || a.category?.trim() === filterCategory;
-    return matchDev && matchCat;
-  }), [apis, filterDeveloper, filterCategory]);
-
-  const isFiltered = filterDeveloper !== "All" || filterCategory !== "All";
-
-  // ── Chart data — all computed from filteredData ──
-
-  const categoryCounts = useMemo(() => {
-    const map = {};
-    filteredData.forEach((a) => { const cat = a.category?.trim() || "Unknown"; map[cat] = (map[cat] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1])
-      .map(([label, value], i) => ({ label, value, color: ["#3b82f6","#6366f1","#8b5cf6","#ec4899","#f59e0b","#10b981","#ef4444","#06b6d4","#f97316","#84cc16"][i % 10] }));
-  }, [filteredData]);
-
-  const developerCounts = useMemo(() => {
-    const map = {};
-    filteredData.forEach((a) => { const dev = a.developer?.trim() || "Unknown"; map[dev] = (map[dev] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 15)
-      .map(([label, value], i) => ({ label, value, color: ["#6366f1","#8b5cf6","#a78bfa","#c4b5fd","#ddd6fe","#3b82f6","#60a5fa","#93c5fd","#bfdbfe","#e0f2fe"][i % 10] }));
-  }, [filteredData]);
-
-  const riskCounts = useMemo(() => {
-    const map = { Low: 0, Medium: 0, High: 0 };
-    filteredData.forEach((a) => { const r = a.risk_level || "Medium"; map[r] = (map[r] || 0) + 1; });
-    return [
-      { label: "Low", value: map.Low, color: "#10b981" },
-      { label: "Medium", value: map.Medium, color: "#f59e0b" },
-      { label: "High", value: map.High, color: "#ef4444" },
-    ].filter((s) => s.value > 0);
-  }, [filteredData]);
-
-  const languageCounts = useMemo(() => {
-    const map = {};
-    filteredData.forEach((a) => { const lang = a.programming_language?.trim() || "Unknown"; map[lang] = (map[lang] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([label, value], i) => ({ label, value, color: ["#10b981","#14b8a6","#06b6d4","#0ea5e9","#3b82f6","#6366f1","#8b5cf6","#ec4899"][i % 8] }));
-  }, [filteredData]);
-
-  const costCounts = useMemo(() => {
-    const map = {};
-    filteredData.forEach((a) => { const cost = a.cost?.trim() || "Unknown"; map[cost] = (map[cost] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6)
-      .map(([label, value], i) => ({ label, value, color: ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#94a3b8"][i % 6] }));
-  }, [filteredData]);
-
-  const patternCounts = useMemo(() => {
-    const map = {};
-    filteredData.forEach((a) => { const p = a.design_pattern?.trim() || "Unknown"; map[p] = (map[p] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6)
-      .map(([label, value], i) => ({ label, value, color: ["#f97316","#eab308","#84cc16","#06b6d4","#a855f7","#ec4899"][i % 6] }));
-  }, [filteredData]);
-
-  const scalabilityCounts = useMemo(() => {
-    const map = {};
-    filteredData.forEach((a) => { const s = a.scalability?.trim() || "Unknown"; map[s] = (map[s] || 0) + 1; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1])
-      .map(([label, value], i) => ({ label, value, color: ["#10b981","#3b82f6","#f59e0b","#ef4444","#8b5cf6","#94a3b8"][i % 6] }));
-  }, [filteredData]);
-
-  const topDevelopers = developerCounts.slice(0, 5);
-
-  // KPI tiles — reflect the filtered subset
-  const totalApis = filteredData.length;
-  const uniqueCategories = new Set(filteredData.map((a) => a.category?.trim()).filter(Boolean)).size;
-  const uniqueDevelopers = new Set(filteredData.map((a) => a.developer?.trim()).filter(Boolean)).size;
-  const lowRiskCount = filteredData.filter((a) => (a.risk_level || "Medium") === "Low").length;
-
-  return (
-    <div className="space-y-8">
-
-      {/* ── Stats Filter Bar — matches main directory toolbar style ── */}
-      <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-
-          {/* Label */}
-          <span className="text-sm font-bold text-slate-600">Filter Stats By:</span>
-
-          {/* Developer filter — searchable dropdown */}
-          <div className="flex items-center gap-2" style={{ position: "relative" }}>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Developer</label>
-            <div style={{ position: "relative" }}>
-              <input
-                type="text"
-                placeholder={filterDeveloper === "All" ? "All Developers" : filterDeveloper}
-                value={devSearch}
-                onFocus={() => setShowDevDropdown(true)}
-                onBlur={() => setTimeout(() => setShowDevDropdown(false), 150)}
-                onChange={(e) => { setDevSearch(e.target.value); setShowDevDropdown(true); }}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-                style={{ width: 180 }}
-              />
-              {showDevDropdown && (
-                <div style={{
-                  position: "absolute", top: "110%", left: 0, zIndex: 200,
-                  background: "#fff", border: "1px solid #e2e8f0",
-                  borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-                  maxHeight: 240, overflowY: "auto", minWidth: 200,
-                }}>
-                  {filteredDevelopers.length === 0 ? (
-                    <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>No matches found</div>
-                  ) : filteredDevelopers.map((d) => (
-                    <div
-                      key={d}
-                      onMouseDown={() => {
-                        setFilterDeveloper(d);
-                        setDevSearch("");
-                        setShowDevDropdown(false);
-                      }}
-                      style={{
-                        padding: "8px 14px", fontSize: 13, cursor: "pointer",
-                        fontWeight: d === filterDeveloper ? 700 : 400,
-                        color: d === filterDeveloper ? "#2563eb" : "#374151",
-                        background: d === filterDeveloper ? "#eff6ff" : "transparent",
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = d === filterDeveloper ? "#eff6ff" : "#f8fafc"}
-                      onMouseLeave={(e) => e.currentTarget.style.background = d === filterDeveloper ? "#eff6ff" : "transparent"}
-                    >
-                      {d}
-                    </div>
-                  ))}
-                  {/* Fade gradient — signals more items below */}
-                  <div style={{
-                    position: "sticky", bottom: 0,
-                    height: 32, pointerEvents: "none",
-                    background: "linear-gradient(to bottom, transparent, rgba(255,255,255,0.95))",
-                    borderRadius: "0 0 14px 14px",
-                  }} />
-                </div>
-              )}
-            </div>
-            {/* Active developer filter badge */}
-            {filterDeveloper !== "All" && (
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
-                {filterDeveloper}
-                <button onMouseDown={() => { setFilterDeveloper("All"); setDevSearch(""); }} style={{ marginLeft: 4, color: "#2563eb", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>×</button>
-              </span>
-            )}
-          </div>
-
-          {/* Category filter */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Category</label>
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            >
-              {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-
-          {/* Reset button */}
-          {isFiltered && (
-            <button
-              onClick={() => { setFilterDeveloper("All"); setFilterCategory("All"); setDevSearch(""); }}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-50"
-            >
-              Reset
-            </button>
-          )}
-
-          {/* Active filter count badge */}
-          {isFiltered && (
-            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
-              Showing {filteredData.length} of {apis.length} APIs
-            </span>
-          )}
-
-        </div>
-      </div>
-
-
-      {/* KPI tiles */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label={isFiltered ? "Filtered APIs" : "Total APIs"} value={totalApis} color="#3b82f6" icon="apis" />
-        <StatCard label="Categories" value={uniqueCategories} color="#8b5cf6" icon="categories" />
-        <StatCard label="Developers" value={uniqueDevelopers} color="#10b981" icon="developers" />
-        <StatCard label="Low Risk" value={lowRiskCount} color="#059669" icon="lowrisk" />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2" style={{ alignItems: "stretch" }}>
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <SimpleBarChart data={categoryCounts} title="APIs by Category" />
-        </div>
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
-          <SimpleBarChart data={developerCounts} title="Top Developers by API Count" />
-        </div>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <DonutChart segments={riskCounts} title="Risk Level Distribution" />
-        </div>
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <DonutChart segments={costCounts} title="Cost Model Breakdown" />
-        </div>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <SimpleBarChart data={languageCounts} title="Programming Languages" />
-        </div>
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <SimpleBarChart data={patternCounts} title="Design Patterns" />
-        </div>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <DonutChart segments={scalabilityCounts.slice(0, 5).map((s, i) => ({
-            ...s, color: ["#10b981","#3b82f6","#f59e0b","#ef4444","#94a3b8"][i],
-          }))} title="Scalability Distribution" />
-        </div>
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Developer Leaderboard</p>
-          <div className="space-y-3">
-            {topDevelopers.map((dev, idx) => (
-              <div key={dev.label} className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-black text-white"
-                  style={{ background: idx === 0 ? "#f59e0b" : idx === 1 ? "#94a3b8" : idx === 2 ? "#b45309" : "#6366f1" }}>
-                  {idx + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-slate-800">{dev.label}</p>
-                </div>
-                <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-bold text-blue-700">
-                  {dev.value} API{dev.value !== 1 ? "s" : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: CompareModal
-// Full-screen overlay showing selected APIs side by side.
-// Props: apis — [ApiEntry], onClose — callback
-// ─────────────────────────────────────────────
-function CompareModal({ apis, onClose }) {
-  if (!apis || apis.length < 2) return null;
-
-  const fields = [
-    { label: "Category", key: "category" },
-    { label: "Version", key: "version" },
-    { label: "Developer", key: "developer" },
-    { label: "Language", key: "programming_language" },
-    { label: "Framework", key: "framework" },
-    { label: "Cost", key: "cost" },
-    { label: "Latency", key: "latency" },
-    { label: "Scalability", key: "scalability" },
-    { label: "Design Pattern", key: "design_pattern" },
-    { label: "Risk Level", key: "risk_level" },
-  ];
-
-  const colWidth = apis.length === 2 ? "1fr 1fr" : apis.length === 3 ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr";
-  const diffColors = [
-    { bg: "#fffbeb", border: "#fde68a" },
-    { bg: "#f0fdf4", border: "#bbf7d0" },
-    { bg: "#eff6ff", border: "#bfdbfe" },
-    { bg: "#fdf4ff", border: "#e9d5ff" },
-  ];
-
-  return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 1000,
-      background: "rgba(15,23,42,0.7)", backdropFilter: "blur(6px)",
-      display: "flex", alignItems: "flex-start", justifyContent: "center",
-      padding: "40px 16px", overflowY: "auto",
-    }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div style={{
-        background: "#fff", borderRadius: 28, width: "100%", maxWidth: 1100,
-        boxShadow: "0 32px 80px rgba(0,0,0,0.25)", overflow: "hidden", flexShrink: 0,
-      }}>
-        <div style={{
-          background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%)",
-          padding: "28px 32px", display: "flex", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <div>
-            <p style={{ color: "#93c5fd", fontSize: 12, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
-              Side-by-Side Comparison
-            </p>
-            <h2 style={{ color: "#fff", fontSize: 24, fontWeight: 800, margin: 0 }}>
-              Comparing {apis.length} APIs
-            </h2>
-          </div>
-          <button onClick={onClose} style={{
-            background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-            color: "#fff", borderRadius: 12, width: 40, height: 40,
-            fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-          }}>×</button>
-        </div>
-        <div style={{ padding: "0 32px 32px 32px", overflowX: "auto" }}>
-          <div style={{
-            display: "grid", gridTemplateColumns: `180px ${colWidth}`,
-            gap: 16, paddingTop: 28, paddingBottom: 20,
-            borderBottom: "2px solid #f1f5f9", marginBottom: 8,
-          }}>
-            <div />
-            {apis.map((api) => (
-              <div key={api.id} style={{ background: "linear-gradient(135deg, #eff6ff, #eef2ff)", borderRadius: 20, padding: "18px 20px", border: "1px solid #bfdbfe" }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: 17, fontWeight: 800, color: "#1e293b" }}>{api.name}</h3>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ background: "#dbeafe", color: "#1d4ed8", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>{api.category}</span>
-                  <span style={{ background: api.risk_level === "High" ? "#fee2e2" : api.risk_level === "Medium" ? "#fef3c7" : "#d1fae5", color: getRiskColor(api.risk_level), borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>{api.risk_level || "Medium"} Risk</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: `180px ${colWidth}`, gap: 16, padding: "16px 0", borderBottom: "1px solid #f1f5f9" }}>
-            <div style={{ display: "flex", alignItems: "center" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>Description</span>
-            </div>
-            {apis.map((api) => (
-              <p key={api.id} style={{ margin: 0, fontSize: 13, color: "#475569", lineHeight: 1.6 }}>{api.description || "—"}</p>
-            ))}
-          </div>
-          {fields.map((field, i) => {
-            const values = apis.map((a) => a[field.key] || "—");
-            const allSame = values.every((v) => v === values[0]);
-            return (
-              <div key={field.key} style={{
-                display: "grid", gridTemplateColumns: `180px ${colWidth}`,
-                gap: 16, padding: "14px 0", borderBottom: "1px solid #f8fafc",
-                background: i % 2 === 0 ? "transparent" : "#fafbff", borderRadius: 8,
-              }}>
-                <div style={{ display: "flex", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>{field.label}</span>
-                </div>
-                {apis.map((api, idx) => {
-                  const val = api[field.key] || "—";
-                  return (
-                    <div key={api.id} style={{ padding: "6px 12px", background: !allSame ? diffColors[idx % 4].bg : "transparent", borderRadius: 10, border: !allSame ? `1px solid ${diffColors[idx % 4].border}` : "none" }}>
-                      {field.key === "risk_level"
-                        ? <span style={{ color: getRiskColor(val), fontWeight: 700, fontSize: 13 }}>{val}</span>
-                        : <span style={{ fontSize: 13, fontWeight: 600, color: val === "—" ? "#cbd5e1" : "#1e293b" }}>{val}</span>
-                      }
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-          {apis.some((a) => a.sample_code) && (
-            <div style={{ display: "grid", gridTemplateColumns: `180px ${colWidth}`, gap: 16, padding: "20px 0 8px 0", borderTop: "2px solid #f1f5f9", marginTop: 8 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", paddingTop: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>Sample Code</span>
-              </div>
-              {apis.map((api) => (
-                <div key={api.id}>
-                  {api.sample_code
-                    ? <pre style={{ margin: 0, padding: "14px 16px", background: "#0f172a", color: "#e2e8f0", borderRadius: 14, fontSize: 11, lineHeight: 1.6, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 160 }}>{api.sample_code}</pre>
-                    : <span style={{ fontSize: 13, color: "#cbd5e1" }}>—</span>
-                  }
-                </div>
-              ))}
-            </div>
-          )}
-          <div style={{ marginTop: 24, padding: "14px 20px", background: "#f8fafc", borderRadius: 16 }}>
-            <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>💡 Highlighted cells indicate differences between entries</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// COMPONENT: App (root)
-// Manages all global state and renders the full page.
-// Tabs: "directory" | "stats"
-// ─────────────────────────────────────────────
 // ─────────────────────────────────────────────
 // COMPONENT: BackToTop
 // Floating button that appears after scrolling down 300px.
@@ -1098,6 +62,11 @@ function BackToTop() {
   );
 }
 
+// ─────────────────────────────────────────────
+// COMPONENT: App (root)
+// Manages all global state and renders the full page.
+// Tabs: "directory" | "stats"
+// ─────────────────────────────────────────────
 function App() {
   // ── Core state ──────────────────────────────
   const [apis, setApis] = useState([]);
@@ -1115,23 +84,23 @@ function App() {
   // Compare state
   const [compareIds, setCompareIds] = useState([]);
   const [showCompare, setShowCompare] = useState(false);
-  const [showCompareLimit, setShowCompareLimit] = useState(false); // toast shown when user tries to select a 5th API
-  const [sortBy, setSortBy] = useState("default");   // sort order for API cards
-  const [copiedId, setCopiedId] = useState(null);     // id of card whose link was just copied
-  const [currentPage, setCurrentPage] = useState(1);  // current pagination page
-  const ITEMS_PER_PAGE = 12;                           // cards shown per page
+  const [showCompareLimit, setShowCompareLimit] = useState(false);
+  const [sortBy, setSortBy] = useState("default");
+  const [copiedId, setCopiedId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 12;
 
   // Review modal state — shown after GitHub fetch
   const [showReview, setShowReview] = useState(false);
-  const [showDrawer, setShowDrawer] = useState(false);  // slide-in form drawer
-  const [expandedId, setExpandedId] = useState(null);   // expanded card id for details toggle
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
 
-  // Drawer-scoped error — shown inline inside the drawer (e.g. duplicate entry)
+  // Drawer-scoped error — shown inline inside the drawer
   const [drawerError, setDrawerError] = useState("");
   const drawerErrorTimer = React.useRef(null);
 
   // Success toast — shown at bottom of screen after a successful add/edit/delete
-  const [toast, setToast] = useState(null); // { message: string, type: "success" | "error" }
+  const [toast, setToast] = useState(null);
 
   // Form fields (controlled inputs)
   const [formData, setFormData] = useState({
@@ -1142,7 +111,6 @@ function App() {
 
   // ── Data fetching ────────────────────────────
 
-  /** Load all API entries from the backend */
   const fetchApis = () => {
     setLoading(true);
     setError("");
@@ -1154,7 +122,6 @@ function App() {
 
   useEffect(() => { fetchApis(); }, []);
 
-  // Auto-clear success messages after 2.5 seconds
   useEffect(() => {
     if (successMessage) {
       const timer = setTimeout(() => setSuccessMessage(""), 2500);
@@ -1162,7 +129,6 @@ function App() {
     }
   }, [successMessage]);
 
-  // Auto-dismiss toast after 5 seconds
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 5000);
@@ -1172,13 +138,10 @@ function App() {
 
   // ── Form handlers ────────────────────────────
 
-  /** Update a single form field */
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  /** Update a field by key (used by ReviewModal) */
   const handleReviewUpdate = (key, value) => setFormData((prev) => ({ ...prev, [key]: value }));
 
-  /** Reset form to empty state and exit edit mode */
   const resetForm = () => {
     setFormData({
       name: "", category: "", description: "", version: "", developer: "",
@@ -1191,20 +154,17 @@ function App() {
     setShowDrawer(false);
   };
 
-  /** Show an error inside the drawer with auto-dismiss after 5s */
   const showDrawerError = (msg) => {
     if (drawerErrorTimer.current) clearTimeout(drawerErrorTimer.current);
     setDrawerError(msg);
     drawerErrorTimer.current = setTimeout(() => setDrawerError(""), 5000);
   };
 
-  /** Generate sample code from template and inject into formData */
   const handleGenerateCode = () => {
     const code = generateSampleCode(formData.name, formData.programming_language);
     setFormData((prev) => ({ ...prev, sample_code: code }));
   };
 
-  /** Submit form: POST (add) or PUT (edit) */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(""); setSuccessMessage(""); setDrawerError(""); setSubmitting(true);
@@ -1212,7 +172,6 @@ function App() {
       const url = editId ? `${API_BASE}/api/apis/${editId}` : `${API_BASE}/api/apis`;
       const method = editId ? "PUT" : "POST";
 
-      // Client-side duplicate check — show error inside drawer so user can see it
       if (!editId) {
         const alreadyExists = apis.some(
           (api) => api.name?.toLowerCase() === formData.name.toLowerCase() &&
@@ -1232,23 +191,17 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || (editId ? "Failed to update API" : "Failed to add API"));
 
-      // Success — close drawer and show bottom toast
       const msg = editId ? "API updated successfully." : "API added successfully.";
       resetForm();
       fetchApis();
       setToast({ message: msg, type: "success" });
     } catch (err) {
-      // Server-side error — show inside drawer
       showDrawerError(err.message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  /**
-   * GitHub fetch — fills form with available data,
-   * then opens the ReviewModal for the user to fill missing fields.
-   */
   const handleGithubFetch = async () => {
     if (!githubRepo.trim()) { showDrawerError("Please enter a GitHub repository in owner/repo format."); return; }
     setError(""); setSuccessMessage(""); setDrawerError(""); setFetchingGithub(true);
@@ -1260,8 +213,6 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch GitHub repository data");
 
-      // ── Duplicate check BEFORE opening review modal ──
-      // No point making the user fill in the review form if the entry already exists.
       const alreadyExists = apis.some(
         (api) => api.name?.toLowerCase() === (data.name || "").toLowerCase() &&
                  api.developer?.toLowerCase() === (data.developer || "").toLowerCase()
@@ -1272,7 +223,6 @@ function App() {
         return;
       }
 
-      // Pre-fill form with whatever GitHub gave us
       setFormData({
         name: data.name || "", category: data.category || "",
         description: data.description || "", version: data.version || "",
@@ -1281,7 +231,6 @@ function App() {
         design_pattern: "", sample_code: "",
       });
 
-      // Open review modal so user fills in the missing fields
       setShowReview(true);
     } catch (err) {
       showDrawerError(err.message);
@@ -1290,10 +239,6 @@ function App() {
     }
   };
 
-  /**
-   * Called when user clicks "Save Entry" in the ReviewModal.
-   * Saves the completed form data to the backend.
-   */
   const handleReviewConfirm = async () => {
     setShowReview(false);
     setError(""); setSuccessMessage(""); setDrawerError(""); setSubmitting(true);
@@ -1325,7 +270,6 @@ function App() {
     }
   };
 
-  /** Delete an entry after confirmation */
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this API?")) return;
     setError(""); setSuccessMessage("");
@@ -1340,7 +284,6 @@ function App() {
     }
   };
 
-  /** Populate form with existing entry data for editing */
   const handleEdit = (api) => {
     setFormData({
       name: api.name || "", category: api.category || "", description: api.description || "",
@@ -1351,18 +294,16 @@ function App() {
     });
     setEditId(api.id);
     setSuccessMessage(""); setError(""); setDrawerError("");
-    setShowDrawer(true);   // open the slide-in drawer instead of scrolling
+    setShowDrawer(true);
     setActiveTab("directory");
   };
 
   // ── Compare handlers ─────────────────────────
 
-  /** Toggle an API in/out of compare selection (max 4) */
   const toggleCompare = (id) => {
     setCompareIds((prev) => {
       if (prev.includes(id)) return prev.filter((cid) => cid !== id);
       if (prev.length >= 4) {
-        // Show a brief toast explaining the 4-item limit
         setShowCompareLimit(true);
         setTimeout(() => setShowCompareLimit(false), 2500);
         return prev;
@@ -1372,11 +313,7 @@ function App() {
   };
 
   // ── Export to CSV ────────────────────────────
-  /**
-   * exportToCSV
-   * Converts the currently filtered API list to a CSV file and triggers a download.
-   * Uses the browser's Blob + anchor click pattern — no library needed.
-   */
+
   const exportToCSV = () => {
     const headers = ["Name","Category","Version","Developer","Language","Framework","Cost","Latency","Scalability","Design Pattern","Risk Level","Description","Sample Code"];
     const rows = filteredApis.map((api) => [
@@ -1398,12 +335,7 @@ function App() {
   };
 
   // ── Shareable card link ───────────────────────
-  /**
-   * copyShareLink
-   * Copies a deep-link URL for a specific API card to the clipboard.
-   * Uses the api id as a hash so the link is bookmarkable.
-   * Shows a brief "Copied!" confirmation on the card.
-   */
+
   const copyShareLink = (id) => {
     const url = `${window.location.origin}${window.location.pathname}#api-${id}`;
     navigator.clipboard.writeText(url).then(() => {
@@ -1430,8 +362,6 @@ function App() {
       );
   }, [apis, searchTerm, selectedCategory]);
 
-  // Sort the filtered list based on the current sortBy selection
-  // When user is actively searching and sort is default → rank by relevance score
   const sortedFilteredApis = useMemo(() => {
     const list = [...filteredApis];
     const isSearching = searchTerm.trim().length > 0;
@@ -1443,15 +373,12 @@ function App() {
     if (sortBy === "category")   return list.sort((a, b) => (a.category || "").localeCompare(b.category || ""));
     if (sortBy === "developer")  return list.sort((a, b) => (a.developer || "").localeCompare(b.developer || ""));
 
-    // Default sort — rank by relevance score when searching, original DB order otherwise
     if (isSearching) return list.sort((a, b) => b._score - a._score);
     return list;
   }, [filteredApis, sortBy, searchTerm]);
 
-  // Reset to page 1 whenever search, category or sort changes
   useEffect(() => { setCurrentPage(1); }, [searchTerm, selectedCategory, sortBy]);
 
-  // Paginate the sorted+filtered list
   const totalPages = Math.ceil(sortedFilteredApis.length / ITEMS_PER_PAGE);
   const paginatedApis = sortedFilteredApis.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -1533,7 +460,7 @@ function App() {
         {/* Directory tab */}
         {activeTab === "directory" && (
           <>
-            {/* Compare toolbar — sticky so Compare Now button is always visible while scrolling */}
+            {/* Compare toolbar */}
             {compareIds.length > 0 && (
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-blue-200 bg-blue-50/95 px-5 py-4 shadow-md backdrop-blur"
                 style={{ position: "sticky", top: 8, zIndex: 100 }}>
@@ -1568,7 +495,7 @@ function App() {
               </div>
             )}
 
-            {/* ── Search & Filter + Add Button (combined row) ── */}
+            {/* ── Search & Filter toolbar ── */}
             <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <input type="text"
@@ -1598,11 +525,8 @@ function App() {
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
                   {sortedFilteredApis.length} result{sortedFilteredApis.length !== 1 ? "s" : ""}
                 </span>
-                {/* Add New API + Export CSV — grouped on the right */}
                 <div className="ml-auto flex items-center gap-3">
-                  {/* Subtle divider */}
                   <div style={{ width: 1, height: 24, background: "#e2e8f0", flexShrink: 0 }} />
-                  {/* Dynamic export button */}
                   <button onClick={exportToCSV}
                     className={`rounded-xl px-3 py-2.5 text-xs font-bold transition ${
                       searchTerm || selectedCategory !== "All"
@@ -1623,7 +547,7 @@ function App() {
               </div>
             </div>
 
-            {/* ── Cards header ── */}
+            {/* Cards header */}
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-800">Available APIs</h2>
               <p className="text-xs text-slate-400">Check boxes to compare</p>
@@ -1654,7 +578,7 @@ function App() {
               </div>
             )}
 
-            {/* ── Compact API cards — 4 col grid ── */}
+            {/* ── API Cards grid ── */}
             {!loading && sortedFilteredApis.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ alignItems: "start" }}>
                 {paginatedApis.map((api) => {
@@ -1668,7 +592,7 @@ function App() {
                     <div key={api.id} id={`api-${api.id}`}
                       className="rounded-2xl border bg-white shadow-sm transition duration-200 hover:shadow-md"
                       style={{
-                        borderColor: isSelected ? "#3b82f6" : isDisabled ? "#e2e8f0" : "#e2e8f0",
+                        borderColor: isSelected ? "#3b82f6" : "#e2e8f0",
                         boxShadow: isSelected ? "0 0 0 2px rgba(59,130,246,0.2)" : undefined,
                         position: "relative",
                         opacity: isDisabled ? 0.6 : 1,
@@ -1676,7 +600,7 @@ function App() {
                         flexDirection: "column",
                       }}>
 
-                      {/* ── Disabled overlay — shown when 4 APIs already selected ── */}
+                      {/* Disabled overlay */}
                       {isDisabled && (
                         <div style={{
                           position: "absolute", inset: 0, zIndex: 10,
@@ -1706,9 +630,8 @@ function App() {
                         </div>
                       )}
 
-                      {/* ── Card header ── */}
+                      {/* Card header */}
                       <div className="p-4 pb-3">
-                        {/* Top row: compare checkbox + missing badge */}
                         <div className="mb-2 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <div onClick={() => !isDisabled && toggleCompare(api.id)}
@@ -1726,20 +649,16 @@ function App() {
                           }
                         </div>
 
-                        {/* Name */}
                         <h3 className="truncate text-base font-bold text-slate-900">{api.name}</h3>
 
-                        {/* Badges */}
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">{api.category}</span>
                           <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{api.version}</span>
                           <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getRiskBadgeClass(api.risk_level)}`}>{api.risk_level || "Medium"} Risk</span>
                         </div>
 
-                        {/* Description — 2 lines truncated */}
                         <p className="mt-2 text-xs leading-5 text-slate-500 line-clamp-2">{api.description}</p>
 
-                        {/* Key fields row */}
                         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
                           {[["Dev", api.developer], ["Lang", api.programming_language], ["Cost", api.cost]].map(([label, val]) => (
                             <span key={label} className="text-xs text-slate-500">
@@ -1750,7 +669,7 @@ function App() {
                         </div>
                       </div>
 
-                      {/* ── Expandable details ── */}
+                      {/* Expandable details */}
                       {isExpanded && (
                         <div className="border-t border-slate-100 px-4 py-3">
                           <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
@@ -1770,7 +689,7 @@ function App() {
                         </div>
                       )}
 
-                      {/* ── Card actions ── */}
+                      {/* Card actions */}
                       <div className="mt-auto flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : api.id)}
@@ -1831,10 +750,8 @@ function App() {
       {/* ── Slide-in form drawer ── */}
       {showDrawer && (
         <div style={{ position: "fixed", inset: 0, zIndex: 500 }}>
-          {/* Backdrop */}
           <div onClick={() => { if (!editId) resetForm(); else setShowDrawer(false); }}
             style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,0.4)", backdropFilter: "blur(3px)" }} />
-          {/* Drawer panel */}
           <div style={{
             position: "absolute", top: 0, right: 0, bottom: 0, width: "100%", maxWidth: 480,
             background: "#fff", boxShadow: "-8px 0 40px rgba(0,0,0,0.15)",
@@ -1935,7 +852,7 @@ function App() {
                   <p className="mt-1 text-xs text-slate-400">Language: <strong>{formData.programming_language || "unknown"}</strong></p>
                 </div>
 
-                {/* Inline toast-style error — pinned inside drawer, drawer stays open */}
+                {/* Inline drawer error */}
                 {drawerError && (
                   <div style={{
                     position: "relative", overflow: "hidden",
@@ -1943,7 +860,6 @@ function App() {
                     background: "#fef2f2", border: "1px solid #fca5a5",
                     borderRadius: 12, padding: "10px 12px",
                   }}>
-                    {/* Red circle icon */}
                     <div style={{
                       width: 22, height: 22, borderRadius: "50%",
                       background: "#dc2626", display: "flex",
@@ -1952,12 +868,10 @@ function App() {
                     }}>
                       <span style={{ color: "#fff", fontSize: 11, fontWeight: 700 }}>✕</span>
                     </div>
-                    {/* Message */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#991b1b" }}>Entry already exists</p>
                       <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#b91c1c" }}>{drawerError}</p>
                     </div>
-                    {/* Close button */}
                     <button
                       type="button"
                       onClick={() => { if (drawerErrorTimer.current) clearTimeout(drawerErrorTimer.current); setDrawerError(""); }}
@@ -1969,7 +883,6 @@ function App() {
                       }}>
                       ✕
                     </button>
-                    {/* Progress bar — animates across 5 seconds */}
                     <div style={{
                       position: "absolute", bottom: 0, left: 0,
                       height: 3, background: "#fca5a5",
@@ -1997,7 +910,7 @@ function App() {
         </div>
       )}
 
-      {/* Success / feedback toast — bottom right, auto-dismisses after 5s */}
+      {/* Success toast — bottom right */}
       {toast && (
         <div style={{
           position: "fixed", bottom: 32, right: 32,
@@ -2010,10 +923,9 @@ function App() {
           display: "flex", alignItems: "flex-start", gap: 12,
           width: 320,
           border: "1.5px solid rgba(255,255,255,0.2)",
-          overflow: "hidden", position: "fixed",
+          overflow: "hidden",
           animation: "toastSlideIn 0.3s ease-out",
         }}>
-          {/* Icon */}
           <div style={{
             width: 24, height: 24, borderRadius: "50%",
             background: "rgba(255,255,255,0.25)",
@@ -2022,7 +934,6 @@ function App() {
           }}>
             {toast.type === "success" ? "✓" : "✕"}
           </div>
-          {/* Message */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#fff" }}>
               {toast.type === "success" ? "Saved successfully" : "Something went wrong"}
@@ -2031,7 +942,6 @@ function App() {
               {toast.message}
             </p>
           </div>
-          {/* Close button */}
           <button
             onClick={() => setToast(null)}
             style={{
@@ -2042,7 +952,6 @@ function App() {
             }}>
             ✕
           </button>
-          {/* Progress bar — 5s countdown */}
           <div style={{
             position: "absolute", bottom: 0, left: 0,
             height: 3, background: "rgba(255,255,255,0.35)",
@@ -2055,25 +964,23 @@ function App() {
         </div>
       )}
 
-      {/* ── Back to Top button — appears after scrolling down ── */}
+      {/* Back to Top */}
       <BackToTop />
 
-      {/* Compare limit toast — shown briefly when user tries to select a 5th API */}
+      {/* Compare limit toast */}
       {showCompareLimit && (
         <div style={{
           position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)",
           zIndex: 9999,
           background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-          color: "#fff",
-          borderRadius: 20,
+          color: "#fff", borderRadius: 20,
           padding: "16px 28px",
           boxShadow: "0 12px 48px rgba(220,38,38,0.45), 0 4px 16px rgba(0,0,0,0.3)",
           display: "flex", alignItems: "center", gap: 12,
           fontSize: 15, fontWeight: 700,
           whiteSpace: "nowrap",
           border: "2px solid rgba(255,255,255,0.2)",
-          minWidth: 360,
-          justifyContent: "center",
+          minWidth: 360, justifyContent: "center",
         }}>
           <span style={{ fontSize: 22 }}>⛔</span>
           <div>
@@ -2090,7 +997,7 @@ function App() {
         <CompareModal apis={compareApis} onClose={() => setShowCompare(false)} />
       )}
 
-      {/* Review modal — shown after GitHub fetch */}
+      {/* Review modal */}
       {showReview && (
         <ReviewModal
           formData={formData}
