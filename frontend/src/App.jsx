@@ -580,7 +580,7 @@ function App() {
 
             {/* ── API Cards grid ── */}
             {!loading && sortedFilteredApis.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ alignItems: "start" }}>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" style={{ alignItems: "stretch" }}>
                 {paginatedApis.map((api) => {
                   const isSelected = compareIds.includes(api.id);
                   const isDisabled = !isSelected && compareIds.length >= 4;
