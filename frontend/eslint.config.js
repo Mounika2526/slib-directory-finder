@@ -1,3 +1,11 @@
+/**
+ * eslint.config.js — ESLint configuration for SLIB Finder frontend
+ *
+ * Extends recommended rules for JavaScript and React.
+ * - reactHooks: enforces Rules of Hooks
+ * - reactRefresh: warns on invalid Fast Refresh exports
+ * - no-unused-vars: errors on unused variables (ignores PascalCase components)
+ */
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'

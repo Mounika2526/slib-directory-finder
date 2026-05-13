@@ -1,31 +1,48 @@
 /**
  * StatsTab.jsx — Full analytics dashboard for SLIB Finder
  *
- * Displays KPI tiles and charts computed from the full API list.
- * Users can filter stats by developer and/or category.
+ * Renders the "Stats Dashboard" tab with KPI tiles and multiple charts,
+ * all computed from the full API list passed in via props.
+ *
+ * Users can filter all stats by developer and/or category using the
+ * filter bar at the top. All charts and KPI tiles update reactively
+ * when filters change — no page reload needed.
+ *
+ * Chart sections (in order):
+ *   1. KPI tiles     — Total APIs, Categories, Developers, Low Risk count
+ *   2. Bar charts    — APIs by Category, Top Developers by count
+ *   3. Donut charts  — Risk Level Distribution, Cost Model Breakdown
+ *   4. Bar charts    — Programming Languages, Design Patterns
+ *   5. Donut + table — Scalability Distribution, Developer Leaderboard
  *
  * Props:
- *   apis — full array of API entry objects
+ *   apis — full array of ApiEntry objects from the backend
  */
 
 import React, { useMemo, useState } from "react";
 import { SimpleBarChart, DonutChart, StatCard } from "./Charts";
 
 function StatsTab({ apis }) {
-  // ── Filter state ──────────────────────────────────────────────────
+
+  // ── Filter state ──────────────────────────────────────────────────────────
+  // Both filters default to "All" so all data is shown on first load
   const [filterDeveloper, setFilterDeveloper] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
 
-  // Searchable developer dropdown state
+  // Searchable developer dropdown — tracks the text input and open/close state
   const [devSearch, setDevSearch] = useState("");
   const [showDevDropdown, setShowDevDropdown] = useState(false);
 
-  // Unique sorted lists for filter dropdowns
+  // ── Dropdown option lists ─────────────────────────────────────────────────
+
+  // All unique developers sorted alphabetically, with "All" prepended
+  // Memoized so it only recomputes when the apis array changes
   const allDevelopers = useMemo(() =>
     ["All", ...[...new Set(apis.map((a) => a.developer?.trim()).filter(Boolean))].sort()],
     [apis]
   );
 
+  // Filtered developer list — narrows based on what the user types in the search box
   const filteredDevelopers = useMemo(() =>
     allDevelopers.filter((d) =>
       d === "All" || d.toLowerCase().includes(devSearch.toLowerCase())
@@ -33,22 +50,29 @@ function StatsTab({ apis }) {
     [allDevelopers, devSearch]
   );
 
+  // All unique categories sorted alphabetically, with "All" prepended
   const allCategories = useMemo(() =>
     ["All", ...[...new Set(apis.map((a) => a.category?.trim()).filter(Boolean))].sort()],
     [apis]
   );
 
-  // Apply developer + category filters to the full API list
+  // ── Filtered dataset ──────────────────────────────────────────────────────
+  // All charts and KPIs below operate on this filtered subset, not the full list.
+  // Both developer and category filters are applied together (AND logic).
   const filteredData = useMemo(() => apis.filter((a) => {
     const matchDev = filterDeveloper === "All" || a.developer?.trim() === filterDeveloper;
     const matchCat = filterCategory === "All" || a.category?.trim() === filterCategory;
     return matchDev && matchCat;
   }), [apis, filterDeveloper, filterCategory]);
 
+  // True when at least one filter is active — drives reset button and count badge visibility
   const isFiltered = filterDeveloper !== "All" || filterCategory !== "All";
 
-  // ── Chart data ────────────────────────────────────────────────────
+  // ── Chart data computations ───────────────────────────────────────────────
+  // Each useMemo recomputes only when filteredData changes.
+  // Colors are assigned by index position so they stay consistent across renders.
 
+  // APIs per category — sorted descending, used in the category bar chart
   const categoryCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => {
@@ -62,6 +86,7 @@ function StatsTab({ apis }) {
       }));
   }, [filteredData]);
 
+  // Top 15 developers by API count — truncated to keep the chart readable
   const developerCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => {
@@ -75,6 +100,8 @@ function StatsTab({ apis }) {
       }));
   }, [filteredData]);
 
+  // Risk distribution — fixed to Low/Medium/High with semantic traffic-light colours
+  // Segments with zero count are filtered out so the donut doesn't show empty slices
   const riskCounts = useMemo(() => {
     const map = { Low: 0, Medium: 0, High: 0 };
     filteredData.forEach((a) => {
@@ -88,6 +115,7 @@ function StatsTab({ apis }) {
     ].filter((s) => s.value > 0);
   }, [filteredData]);
 
+  // Top 8 programming languages — truncated to prevent the chart from becoming too tall
   const languageCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => {
@@ -101,6 +129,7 @@ function StatsTab({ apis }) {
       }));
   }, [filteredData]);
 
+  // Top 6 cost models — shows pricing distribution across the directory
   const costCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => {
@@ -114,6 +143,7 @@ function StatsTab({ apis }) {
       }));
   }, [filteredData]);
 
+  // Top 6 design patterns — REST, GraphQL, Event-Driven, etc.
   const patternCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => {
@@ -127,6 +157,7 @@ function StatsTab({ apis }) {
       }));
   }, [filteredData]);
 
+  // Scalability distribution — High/Medium/Low breakdown across all entries
   const scalabilityCounts = useMemo(() => {
     const map = {};
     filteredData.forEach((a) => {
@@ -140,9 +171,11 @@ function StatsTab({ apis }) {
       }));
   }, [filteredData]);
 
+  // Top 5 developers for the leaderboard panel (separate from the full bar chart)
   const topDevelopers = developerCounts.slice(0, 5);
 
-  // KPI tiles
+  // ── KPI tile values ───────────────────────────────────────────────────────
+  // All computed from filteredData so they reflect the active filters
   const totalApis = filteredData.length;
   const uniqueCategories = new Set(filteredData.map((a) => a.category?.trim()).filter(Boolean)).size;
   const uniqueDevelopers = new Set(filteredData.map((a) => a.developer?.trim()).filter(Boolean)).size;
@@ -152,25 +185,29 @@ function StatsTab({ apis }) {
     <div className="space-y-8">
 
       {/* ── Stats Filter Bar ── */}
+      {/* Matches the style of the main directory toolbar for visual consistency */}
       <div className="mb-4 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
 
           <span className="text-sm font-bold text-slate-600">Filter Stats By:</span>
 
-          {/* Developer filter — searchable dropdown */}
+          {/* Developer filter — searchable dropdown with type-ahead filtering */}
           <div className="flex items-center gap-2" style={{ position: "relative" }}>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Developer</label>
             <div style={{ position: "relative" }}>
               <input
                 type="text"
+                // Placeholder shows active filter or "All Developers" when none selected
                 placeholder={filterDeveloper === "All" ? "All Developers" : filterDeveloper}
                 value={devSearch}
                 onFocus={() => setShowDevDropdown(true)}
+                // Delay close so onMouseDown on dropdown items fires first
                 onBlur={() => setTimeout(() => setShowDevDropdown(false), 150)}
                 onChange={(e) => { setDevSearch(e.target.value); setShowDevDropdown(true); }}
                 className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
                 style={{ width: 180 }}
               />
+              {/* Dropdown list — shown when input is focused */}
               {showDevDropdown && (
                 <div style={{
                   position: "absolute", top: "110%", left: 0, zIndex: 200,
@@ -179,12 +216,14 @@ function StatsTab({ apis }) {
                   maxHeight: 240, overflowY: "auto", minWidth: 200,
                 }}>
                   {filteredDevelopers.length === 0 ? (
+                    // Empty state when search returns no matching developers
                     <div style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>
                       No matches found
                     </div>
                   ) : filteredDevelopers.map((d) => (
                     <div
                       key={d}
+                      // onMouseDown fires before onBlur — keeps dropdown open during selection
                       onMouseDown={() => {
                         setFilterDeveloper(d);
                         setDevSearch("");
@@ -202,7 +241,7 @@ function StatsTab({ apis }) {
                       {d}
                     </div>
                   ))}
-                  {/* Fade gradient */}
+                  {/* Fade gradient at bottom — signals there are more items below */}
                   <div style={{
                     position: "sticky", bottom: 0,
                     height: 32, pointerEvents: "none",
@@ -212,6 +251,7 @@ function StatsTab({ apis }) {
                 </div>
               )}
             </div>
+            {/* Active filter badge — shows selected developer with an inline remove button */}
             {filterDeveloper !== "All" && (
               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
                 {filterDeveloper}
@@ -223,7 +263,7 @@ function StatsTab({ apis }) {
             )}
           </div>
 
-          {/* Category filter */}
+          {/* Category filter — standard select dropdown */}
           <div className="flex items-center gap-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Category</label>
             <select
@@ -235,7 +275,7 @@ function StatsTab({ apis }) {
             </select>
           </div>
 
-          {/* Reset button */}
+          {/* Reset button — only shown when at least one filter is active */}
           {isFiltered && (
             <button
               onClick={() => { setFilterDeveloper("All"); setFilterCategory("All"); setDevSearch(""); }}
@@ -245,7 +285,7 @@ function StatsTab({ apis }) {
             </button>
           )}
 
-          {/* Active filter count badge */}
+          {/* Count badge — shows how many APIs are covered by the current filters */}
           {isFiltered && (
             <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
               Showing {filteredData.length} of {apis.length} APIs
@@ -254,7 +294,8 @@ function StatsTab({ apis }) {
         </div>
       </div>
 
-      {/* ── KPI Tiles ── */}
+      {/* ── KPI Tiles — 4-column grid ── */}
+      {/* Label changes to "Filtered APIs" when a filter is active */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label={isFiltered ? "Filtered APIs" : "Total APIs"} value={totalApis} color="#3b82f6" icon="apis" />
         <StatCard label="Categories" value={uniqueCategories} color="#8b5cf6" icon="categories" />
@@ -262,7 +303,7 @@ function StatsTab({ apis }) {
         <StatCard label="Low Risk" value={lowRiskCount} color="#059669" icon="lowrisk" />
       </div>
 
-      {/* ── Chart rows ── */}
+      {/* ── Row 1: Category bar + Developer bar ── */}
       <div className="grid gap-6 lg:grid-cols-2" style={{ alignItems: "stretch" }}>
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <SimpleBarChart data={categoryCounts} title="APIs by Category" />
@@ -272,6 +313,7 @@ function StatsTab({ apis }) {
         </div>
       </div>
 
+      {/* ── Row 2: Risk donut + Cost donut ── */}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <DonutChart segments={riskCounts} title="Risk Level Distribution" />
@@ -281,6 +323,7 @@ function StatsTab({ apis }) {
         </div>
       </div>
 
+      {/* ── Row 3: Language bar + Design pattern bar ── */}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <SimpleBarChart data={languageCounts} title="Programming Languages" />
@@ -290,8 +333,10 @@ function StatsTab({ apis }) {
         </div>
       </div>
 
+      {/* ── Row 4: Scalability donut + Developer leaderboard ── */}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          {/* Only show top 5 scalability segments to keep the donut readable */}
           <DonutChart
             segments={scalabilityCounts.slice(0, 5).map((s, i) => ({
               ...s,
@@ -300,6 +345,7 @@ function StatsTab({ apis }) {
             title="Scalability Distribution"
           />
         </div>
+        {/* Developer leaderboard — top 5 with gold/silver/bronze rank colours */}
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <p className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">
             Developer Leaderboard
@@ -310,6 +356,7 @@ function StatsTab({ apis }) {
                 key={dev.label}
                 className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
               >
+                {/* Rank badge — gold 1st, silver 2nd, bronze 3rd, indigo 4th+ */}
                 <div
                   className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-black text-white"
                   style={{
@@ -321,6 +368,7 @@ function StatsTab({ apis }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold text-slate-800">{dev.label}</p>
                 </div>
+                {/* API count badge — singular/plural handled with ternary */}
                 <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-bold text-blue-700">
                   {dev.value} API{dev.value !== 1 ? "s" : ""}
                 </span>
