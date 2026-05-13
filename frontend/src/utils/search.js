@@ -1,122 +1,154 @@
 /**
  * search.js — Search and relevance scoring utilities for SLIB Finder
  *
+ * This module powers the search bar in the directory tab.
+ * Instead of a simple string match, it uses a multi-signal scoring
+ * system so the most relevant result always ranks first.
+ *
  * Exports:
  *   similarityScore  — bigram-based string similarity (0–1)
- *   fuzzyCharMatch   — character sequence match (typo tolerance)
- *   scoreApi         — full relevance score for an API entry vs a search term
+ *   fuzzyCharMatch   — character sequence match for typo tolerance
+ *   scoreApi         — full relevance score for one API vs a search term
  *
  * Scoring tiers (higher = more relevant):
- *   100 — exact name match
- *    80 — name starts with term
- *    60 — name contains term
- *    40 — high similarity score (typo tolerance)
+ *   100 — exact name match          e.g. "stripe" === "stripe"
+ *    80 — name starts with term     e.g. "str" → "Stripe API"
+ *    60 — name contains term        e.g. "pay" → "Stripe API" (no)
+ *    40 — high similarity score     e.g. "stirpe" ~ "stripe" (typo)
  *    20 — fuzzy char sequence match on name
- *    10 — match on other fields (description, category, developer…)
+ *    10 — match on other fields     (description, category, developer…)
+ *     0 — no match — excluded from results entirely
  */
 
 /**
  * similarityScore
  * Returns a 0–1 score of how similar two strings are.
- * Uses bigram (2-character pair) overlap — language-agnostic and
- * typo-tolerant. "fastify" vs "fatify" → ~0.72
  *
- * @param {string} a
- * @param {string} b
+ * Uses bigram (2-character pair) overlap — language-agnostic and
+ * typo-tolerant. Example: "fastify" vs "fatify" → ~0.72
+ *
+ * How bigrams work:
+ *   "fast" → {"fa", "as", "st"}
+ *   "fsat" → {"fs", "sa", "at"}
+ *   intersection = 0, so score is low — correctly penalises anagrams
+ *
+ * @param {string} a - First string (lowercased before calling)
+ * @param {string} b - Second string (lowercased before calling)
  * @returns {number} 0 (no similarity) to 1 (identical)
  */
 export function similarityScore(a, b) {
-    if (!a || !b) return 0;
-    if (a === b) return 1;
-  
-    const getBigrams = (str) => {
-      const bigrams = new Set();
-      for (let i = 0; i < str.length - 1; i++) {
-        bigrams.add(str.slice(i, i + 2));
-      }
-      return bigrams;
-    };
-  
-    const bigramsA = getBigrams(a);
-    const bigramsB = getBigrams(b);
-  
-    if (bigramsA.size === 0 || bigramsB.size === 0) {
-      return a.includes(b) || b.includes(a) ? 0.5 : 0;
+  if (!a || !b) return 0;
+  if (a === b) return 1; // short-circuit: identical strings
+
+  // Build bigram sets for both strings
+  const getBigrams = (str) => {
+    const bigrams = new Set();
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.add(str.slice(i, i + 2));
     }
-  
-    let intersection = 0;
-    bigramsA.forEach((bg) => { if (bigramsB.has(bg)) intersection++; });
-  
-    return (2 * intersection) / (bigramsA.size + bigramsB.size);
+    return bigrams;
+  };
+
+  const bigramsA = getBigrams(a);
+  const bigramsB = getBigrams(b);
+
+  // Fallback for single-char strings — bigrams can't be formed
+  if (bigramsA.size === 0 || bigramsB.size === 0) {
+    return a.includes(b) || b.includes(a) ? 0.5 : 0;
   }
-  
-  /**
-   * fuzzyCharMatch
-   * Returns true if every character in `term` appears in `str` in order.
-   * Used as a last-resort signal for very short terms.
-   *
-   * @param {string} str
-   * @param {string} term
-   * @returns {boolean}
-   */
-  export function fuzzyCharMatch(str, term) {
-    if (!str || !term) return false;
-    let ti = 0;
-    for (let i = 0; i < str.length && ti < term.length; i++) {
-      if (str[i] === term[ti]) ti++;
-    }
-    return ti === term.length;
+
+  // Count shared bigrams between the two sets
+  let intersection = 0;
+  bigramsA.forEach((bg) => { if (bigramsB.has(bg)) intersection++; });
+
+  // Dice coefficient: 2 * shared / total bigrams across both strings
+  return (2 * intersection) / (bigramsA.size + bigramsB.size);
+}
+
+/**
+ * fuzzyCharMatch
+ * Returns true if every character in `term` appears in `str` in order.
+ * This is a last-resort signal used only for terms of 3+ characters.
+ *
+ * Example: "fstfy" matches "fastify" because f→a→s→t→i→f→y contains
+ * all characters of "fstfy" in the correct order.
+ *
+ * @param {string} str  - The string to search within (API name)
+ * @param {string} term - The search term to find characters of
+ * @returns {boolean}
+ */
+export function fuzzyCharMatch(str, term) {
+  if (!str || !term) return false;
+
+  // Walk through str and consume term characters in order
+  let ti = 0;
+  for (let i = 0; i < str.length && ti < term.length; i++) {
+    if (str[i] === term[ti]) ti++;
   }
-  
-  /**
-   * scoreApi
-   * Returns a numeric relevance score for an API entry against a search term.
-   * Score of 0 means no match — exclude from results.
-   *
-   * @param {object} api  - An ApiEntry object
-   * @param {string} term - Lowercased, trimmed search query
-   * @returns {number}
-   */
-  export function scoreApi(api, term) {
-    if (!term) return 1; // empty search — everything passes with neutral score
-  
-    const name = (api.name || "").toLowerCase();
-    const SIMILARITY_THRESHOLD = 0.4;
-  
-    // Tier 1: Exact name match
-    if (name === term) return 100;
-  
-    // Tier 2: Name starts with term
-    if (name.startsWith(term)) return 80;
-  
-    // Tier 3: Name contains term as substring
-    if (name.includes(term)) return 60;
-  
-    // Tier 4: High similarity on name (typo tolerance)
-    const nameSim = similarityScore(name, term);
-    if (nameSim >= SIMILARITY_THRESHOLD) {
-      return Math.round(40 + nameSim * 19);
-    }
-  
-    // Tier 5: Fuzzy character sequence on name (min 3 chars)
-    if (term.length >= 3 && fuzzyCharMatch(name, term)) return 20;
-  
-    // Tier 6: Match on other fields
-    const otherFields = [
-      api.category,
-      api.description,
-      api.developer,
-      api.programming_language,
-      api.framework,
-      api.cost,
-      api.design_pattern,
-    ];
-  
-    for (const field of otherFields) {
-      const f = (field || "").toLowerCase();
-      if (f.includes(term)) return 10;
-      if (similarityScore(f, term) >= SIMILARITY_THRESHOLD) return 8;
-    }
-  
-    return 0;
+
+  // All term characters were found in order
+  return ti === term.length;
+}
+
+/**
+ * scoreApi
+ * Returns a numeric relevance score for an API entry against a search term.
+ * A score of 0 means no match — the entry should be excluded from results.
+ *
+ * Called on every API entry in the list whenever the search term changes.
+ * Results are then sorted descending by score when a search is active.
+ *
+ * @param {object} api  - An ApiEntry object from the database
+ * @param {string} term - Lowercased, trimmed search query string
+ * @returns {number} Relevance score (0 = no match, 100 = perfect match)
+ */
+export function scoreApi(api, term) {
+  // Empty search — everything passes with a neutral score of 1
+  if (!term) return 1;
+
+  const name = (api.name || "").toLowerCase();
+
+  // Minimum bigram similarity required to count as a match
+  const SIMILARITY_THRESHOLD = 0.4;
+
+  // ── Tier 1: Exact name match ──────────────────────────────────────
+  if (name === term) return 100;
+
+  // ── Tier 2: Name starts with the search term ──────────────────────
+  if (name.startsWith(term)) return 80;
+
+  // ── Tier 3: Name contains the term as a substring ─────────────────
+  if (name.includes(term)) return 60;
+
+  // ── Tier 4: High bigram similarity on name (handles typos) ────────
+  const nameSim = similarityScore(name, term);
+  if (nameSim >= SIMILARITY_THRESHOLD) {
+    // Scale score between 40–59 based on how close the similarity is
+    return Math.round(40 + nameSim * 19);
   }
+
+  // ── Tier 5: Fuzzy character sequence match on name ─────────────────
+  // Only for terms of 3+ chars — avoids too many false positives
+  if (term.length >= 3 && fuzzyCharMatch(name, term)) return 20;
+
+  // ── Tier 6: Match on any other field ──────────────────────────────
+  // Lower score since these are less relevant than name matches
+  const otherFields = [
+    api.category,
+    api.description,
+    api.developer,
+    api.programming_language,
+    api.framework,
+    api.cost,
+    api.design_pattern,
+  ];
+
+  for (const field of otherFields) {
+    const f = (field || "").toLowerCase();
+    if (f.includes(term)) return 10;                          // substring match
+    if (similarityScore(f, term) >= SIMILARITY_THRESHOLD) return 8; // fuzzy match
+  }
+
+  // No match found across any tier — exclude from results
+  return 0;
+}

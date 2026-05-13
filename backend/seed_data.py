@@ -23,7 +23,10 @@ from app import app, db, ApiEntry
 
 SEED_DATA = [
 
-    # ── Payments ──────────────────────────────────────────────────────────────
+    # ── PAYMENTS (15 entries) ─────────────────────────────────────────────────
+    # Payment gateways and processing APIs for online and in-person transactions.
+    # Covers global providers (Stripe, PayPal, Adyen), regional (Razorpay, Paytm),
+    # and BNPL solutions (Klarna). All use REST with Paid/Premium pricing.
     ("Stripe API", "Payments",
      "Payment processing API for online businesses. Supports cards, wallets, and subscriptions.",
      "v1", "stripe", "Multi-language", "REST", "Paid/Premium", "Low", "High", "REST", "Low",
@@ -99,7 +102,10 @@ SEED_DATA = [
      "v1", "paytm", "Multi-language", "REST", "Paid/Premium", "Low", "High", "REST", "Low",
      "const PaytmChecksum = require('paytmchecksum');\nconst params = { MID: 'YOUR_MID', ORDER_ID: 'order123', CUST_ID: 'cust123', CHANNEL_ID: 'WEB', TXN_AMOUNT: '100.00', CURRENCY: 'INR', WEBSITE: 'WEBSTAGING', CALLBACK_URL: 'https://example.com/callback' };\nconst checksum = await PaytmChecksum.generateSignature(params, 'YOUR_MERCHANT_KEY');"),
 
-    # ── Authentication ─────────────────────────────────────────────────────────
+    # ── AUTHENTICATION (15 entries) ───────────────────────────────────────────
+    # Identity and access management APIs for user authentication and authorization.
+    # Covers OAuth2/OIDC platforms (Auth0, Okta), passwordless (Magic, Stytch),
+    # enterprise SSO (WorkOS, Ping Identity), and open source (Keycloak).
     ("Auth0 API", "Authentication",
      "Authentication and authorization platform with OAuth2, OIDC, and SAML support.",
      "v2", "auth0", "Multi-language", "REST", "Freemium", "Low", "High", "OAuth2", "Low",
@@ -175,7 +181,10 @@ SEED_DATA = [
      "v1", "workos", "Multi-language", "REST", "Freemium", "Low", "High", "OAuth2", "Low",
      "const WorkOS = require('@workos-inc/node');\nconst workos = new WorkOS('YOUR_API_KEY');\nconst url = workos.sso.getAuthorizationURL({ domain: 'example.com', redirectURI: 'https://app.example.com/callback', clientID: 'YOUR_CLIENT_ID' });"),
 
-    # ── AI/ML ──────────────────────────────────────────────────────────────────
+    # ── AI/ML (14 entries) ────────────────────────────────────────────────────
+    # Artificial intelligence and machine learning APIs for text, image, and audio.
+    # Covers LLM providers (OpenAI, Anthropic, Mistral, Groq), image generation
+    # (Stability AI), speech (Whisper, AssemblyAI), and translation (DeepL).
     ("OpenAI API", "AI/ML",
      "Powerful AI API providing access to GPT-4, DALL-E, Whisper, and embeddings.",
      "v1", "openai", "Multi-language", "REST", "Paid/Premium", "Medium", "High", "REST", "Low",
@@ -246,7 +255,10 @@ SEED_DATA = [
      "v1", "openai", "Multi-language", "REST", "Paid/Premium", "Medium", "High", "REST", "Low",
      "const OpenAI = require('openai');\nconst openai = new OpenAI({ apiKey: 'YOUR_API_KEY' });\nconst transcription = await openai.audio.transcriptions.create({ file: fs.createReadStream('audio.mp3'), model: 'whisper-1' });"),
 
-    # ── Cloud ──────────────────────────────────────────────────────────────────
+    # ── CLOUD (15 entries) ────────────────────────────────────────────────────
+    # Cloud infrastructure and deployment APIs for storage, compute, and hosting.
+    # Covers major providers (AWS, GCP, Azure), deployment platforms (Vercel,
+    # Render, Railway, Heroku), and edge computing (Cloudflare Workers).
     ("AWS S3 API", "Cloud",
      "Amazon S3 object storage API for storing and retrieving files at scale.",
      "v4", "amazon", "Multi-language", "REST", "Paid/Premium", "Low", "High", "REST", "Low",
@@ -322,7 +334,10 @@ SEED_DATA = [
      "v2", "railway", "Multi-language", "GraphQL", "Freemium", "Low", "High", "GraphQL", "Low",
      "const axios = require('axios');\nconst response = await axios.post('https://backboard.railway.app/graphql/v2', { query: '{ me { name email projects { edges { node { id name } } } } }' }, { headers: { Authorization: 'Bearer YOUR_TOKEN' } });"),
 
-    # ── Database ───────────────────────────────────────────────────────────────
+    # ── DATABASE (14 entries) ─────────────────────────────────────────────────
+    # Database and ORM APIs for SQL, NoSQL, vector, and serverless storage.
+    # Covers relational (Neon, PlanetScale, CockroachDB), document (MongoDB,
+    # Firestore), key-value (Redis, Upstash), and ORM tools (Prisma, Drizzle).
     ("Supabase API", "Database",
      "Open source Firebase alternative with PostgreSQL, auth, and realtime subscriptions.",
      "v1", "supabase", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
@@ -393,7 +408,10 @@ SEED_DATA = [
      "v0.29", "drizzle-team", "TypeScript", "N/A", "Open Source", "Low", "High", "N/A", "High",
      "import { drizzle } from 'drizzle-orm/node-postgres';\nimport { eq } from 'drizzle-orm';\nconst db = drizzle(pool);\nconst users = await db.select().from(usersTable).where(eq(usersTable.active, true));"),
 
-    # ── DevOps ─────────────────────────────────────────────────────────────────
+    # ── DEVOPS (8 entries) ────────────────────────────────────────────────────
+    # CI/CD and infrastructure APIs for building, deploying, and orchestrating apps.
+    # Covers version control (GitHub, GitLab, Bitbucket), containers (Docker,
+    # Kubernetes), CI pipelines (CircleCI), and infrastructure-as-code (Terraform, ArgoCD).
     ("GitHub Actions API", "DevOps",
      "GitHub Actions REST API for managing CI/CD workflows, runs, and artifacts.",
      "v3", "github", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
@@ -434,7 +452,10 @@ SEED_DATA = [
      "v2", "argoproj", "Multi-language", "REST", "Open Source", "Low", "High", "REST", "Low",
      "const axios = require('axios');\nconst apps = await axios.get('https://argocd.example.com/api/v1/applications', { headers: { Authorization: 'Bearer YOUR_TOKEN' } });"),
 
-    # ── Analytics ──────────────────────────────────────────────────────────────
+    # ── ANALYTICS (8 entries) ─────────────────────────────────────────────────
+    # Product and web analytics APIs for tracking user behavior and events.
+    # Covers web analytics (Google Analytics, Plausible), product analytics
+    # (Mixpanel, Amplitude, PostHog), and behavior tools (Hotjar, Heap).
     ("Google Analytics API", "Analytics",
      "Web analytics API for tracking website traffic, user behavior, and conversions.",
      "v4", "google", "Multi-language", "REST", "Free", "Low", "High", "REST", "Low",
@@ -475,7 +496,10 @@ SEED_DATA = [
      "v1", "heap", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
      "const axios = require('axios');\nawait axios.post('https://heapanalytics.com/api/track', { app_id: 'YOUR_APP_ID', identity: 'user@example.com', event: 'Clicked Button', properties: { button: 'CTA' } });"),
 
-    # ── Monitoring ─────────────────────────────────────────────────────────────
+    # ── MONITORING (8 entries) ────────────────────────────────────────────────
+    # Observability and incident management APIs for tracking system health.
+    # Covers APM (Datadog, New Relic, Dynatrace), open source (Grafana,
+    # Prometheus), error tracking (Sentry), alerting (PagerDuty), and uptime (Uptime Robot).
     ("Datadog API", "Monitoring",
      "Cloud monitoring and analytics API for infrastructure, applications, and logs.",
      "v2", "datadog", "Multi-language", "REST", "Paid/Premium", "Low", "High", "REST", "Low",
@@ -516,7 +540,10 @@ SEED_DATA = [
      "v2", "dynatrace", "Multi-language", "REST", "Paid/Premium", "Low", "High", "REST", "Low",
      "const axios = require('axios');\nconst problems = await axios.get('https://YOUR_ENV.live.dynatrace.com/api/v2/problems', { headers: { Authorization: 'Api-Token YOUR_TOKEN' } });"),
 
-    # ── Search ─────────────────────────────────────────────────────────────────
+    # ── SEARCH (8 entries) ────────────────────────────────────────────────────
+    # Full-text and vector search APIs for building fast search experiences.
+    # Covers managed search (Algolia), open source (Elasticsearch, Meilisearch,
+    # Typesense, OpenSearch), and vector/semantic search (Pinecone, Qdrant, Weaviate).
     ("Algolia API", "Search",
      "Search-as-a-service API for fast, typo-tolerant full-text search experiences.",
      "v4", "algolia", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
@@ -557,7 +584,10 @@ SEED_DATA = [
      "v2", "amazon", "Multi-language", "REST", "Open Source", "Low", "High", "REST", "Low",
      "const { Client } = require('@opensearch-project/opensearch');\nconst client = new Client({ node: 'https://localhost:9200', auth: { username: 'admin', password: 'admin' } });\nconst result = await client.search({ index: 'movies', body: { query: { match: { title: 'Inception' } } } });"),
 
-    # ── Microservice ───────────────────────────────────────────────────────────
+    # ── MICROSERVICE (12 entries) ─────────────────────────────────────────────
+    # Messaging, orchestration, and service communication APIs for distributed systems.
+    # Covers message brokers (Kafka, RabbitMQ, NATS), API gateways (Kong),
+    # workflow engines (Temporal), real-time (Socket.IO), and job queues (BullMQ).
     ("Kong Gateway API", "Microservice",
      "Open source API gateway and microservice management platform.",
      "v3", "kong", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
@@ -618,7 +648,10 @@ SEED_DATA = [
      "v2", "nats", "Multi-language", "REST", "Open Source", "Low", "High", "Pub/Sub", "Low",
      "const { connect, StringCodec } = require('nats');\nconst nc = await connect({ servers: 'nats://localhost:4222' });\nconst sc = StringCodec();\nnc.publish('orders', sc.encode(JSON.stringify({ id: '123', total: 99.99 })));"),
 
-    # ── Backend Framework ──────────────────────────────────────────────────────
+    # ── BACKEND FRAMEWORK (12 entries) ───────────────────────────────────────
+    # Server-side web frameworks for building REST and GraphQL APIs.
+    # Covers Python (Flask, FastAPI, Django REST), JavaScript (Express, NestJS,
+    # Fastify, Hono), and others (Spring Boot, Laravel, Rails, Strapi, Hasura).
     ("Flask", "Backend Framework",
      "Lightweight Python web framework for building simple APIs and microservices.",
      "v3", "pallets", "Python", "REST", "Open Source", "Low", "High", "REST", "Low",
@@ -679,7 +712,10 @@ SEED_DATA = [
      "v2", "hasura", "Multi-language", "GraphQL", "Open Source", "Low", "High", "GraphQL", "Low",
      "const axios = require('axios');\nconst response = await axios.post('https://YOUR_APP.hasura.app/v1/graphql', { query: '{ users { id name email } }' }, { headers: { 'x-hasura-admin-secret': 'YOUR_SECRET' } });"),
 
-    # ── Frontend ───────────────────────────────────────────────────────────────
+    # ── FRONTEND (8 entries) ──────────────────────────────────────────────────
+    # Frontend frameworks and libraries for building user interfaces and fullstack apps.
+    # Covers UI frameworks (React, Vue, Angular, Svelte), fullstack (Next.js),
+    # data fetching (React Query), state management (Redux Toolkit), and tRPC.
     ("React", "Frontend",
      "The library for building user interfaces with component-based architecture.",
      "v19.2.5", "facebook", "JavaScript", "N/A", "Open Source", "Low", "High", "Component", "Low",
@@ -720,7 +756,13 @@ SEED_DATA = [
      "v11", "trpc", "TypeScript", "REST", "Open Source", "Low", "High", "REST", "Low",
      "import { initTRPC } from '@trpc/server';\nconst t = initTRPC.create();\nexport const appRouter = t.router({ greeting: t.procedure.input(z.object({ name: z.string() })).query(({ input }) => { return { message: `Hello ${input.name}!` }; }) });"),
 
-    # ── API (General) ──────────────────────────────────────────────────────────
+    # ── API / GENERAL (47 entries) ────────────────────────────────────────────
+    # General-purpose APIs across communication, data, media, and productivity.
+    # Covers maps (Google Maps, Mapbox), weather (OpenWeatherMap), communication
+    # (Twilio, SendGrid), social (GitHub, Slack, Discord, Spotify, Twitter/X),
+    # e-commerce (Shopify, WooCommerce), CMS (Contentful, Sanity), CRM (HubSpot,
+    # Salesforce), productivity (Notion, Airtable, Zoom), media (Cloudinary,
+    # Pusher, Ably), finance (CoinGecko, Alpha Vantage), and public/free APIs.
     ("OpenWeatherMap API", "API",
      "Weather data API providing current, forecast, and historical weather information.",
      "v3", "openweather", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
@@ -956,7 +998,11 @@ SEED_DATA = [
      "v1", "jsonplaceholder", "Multi-language", "REST", "Free", "Low", "High", "REST", "Low",
      "const axios = require('axios');\nconst posts = await axios.get('https://jsonplaceholder.typicode.com/posts');\nconst newPost = await axios.post('https://jsonplaceholder.typicode.com/posts', { title: 'Test Post', body: 'Content', userId: 1 });"),
 
-    # ── Security ────────────────────────────────────────────────────────────────
+    # ── SECURITY (7 entries) ──────────────────────────────────────────────────
+    # Security and vulnerability APIs for protecting applications and user data.
+    # Covers vulnerability scanning (Snyk), breach detection (HaveIBeenPwned),
+    # secrets management (Vault), bot protection (reCAPTCHA), malware detection
+    # (VirusTotal), WAF (Cloudflare), and SIEM (Splunk).
     ("Snyk API", "Security",
      "Developer security API for finding and fixing vulnerabilities in code and dependencies.",
      "v1", "snyk", "Multi-language", "REST", "Freemium", "Low", "High", "REST", "Low",
@@ -992,7 +1038,11 @@ SEED_DATA = [
      "v9", "splunk", "Multi-language", "REST", "Paid/Premium", "Low", "High", "REST", "Low",
      "const axios = require('axios');\nconst search = await axios.post('https://localhost:8089/services/search/jobs', new URLSearchParams({ search: 'search index=main | head 10', output_mode: 'json' }), { auth: { username: 'admin', password: 'YOUR_PASSWORD' } });"),
 
-    # ── IoT ─────────────────────────────────────────────────────────────────────
+    # ── IOT (9 entries) ───────────────────────────────────────────────────────
+    # Internet of Things platform APIs for connecting and managing smart devices.
+    # Covers cloud IoT platforms (AWS IoT, Azure IoT Hub, Google Cloud IoT),
+    # maker/hobbyist platforms (Particle, Adafruit IO, Blynk), analytics
+    # (ThingSpeak), enterprise (Losant), and industrial (Ubidots).
     ("AWS IoT API", "IoT",
      "Amazon's IoT platform API for connecting and managing IoT devices at scale.",
      "v1", "amazon", "Multi-language", "REST", "Paid/Premium", "Low", "High", "Event-Driven", "Low",
